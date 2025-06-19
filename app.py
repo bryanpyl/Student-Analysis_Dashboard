@@ -133,6 +133,38 @@ if uploaded_file:
     col1, col2 = st.columns(2)
     col1.metric("Above Benchmark", above)
     col2.metric("Below Benchmark", below)
+    
+    st.subheader("📊 Graphical Analysis")
+
+    # 1. Grade distribution by class (bar chart)
+    st.markdown("### 🎯 Grade Distribution by Class")
+
+    grade_by_class = df.groupby(['Class', 'Grade']).size().unstack(fill_value=0).reindex(columns=grade_order, fill_value=0)
+
+    st.dataframe(grade_by_class)
+
+    st.markdown("Bar chart showing number of students in each grade category for every class.")
+    fig1, ax1 = plt.subplots(figsize=(10, 5))
+    grade_by_class.plot(kind="bar", ax=ax1)
+    ax1.set_ylabel("Number of Students")
+    ax1.set_xlabel("Class")
+    ax1.set_title("Grade Distribution by Class")
+    ax1.legend(title="Grade", bbox_to_anchor=(1.05, 1), loc="upper left")
+    st.pyplot(fig1)
+
+    # 2. Overall grade distribution (pie chart)
+    st.markdown("### 📌 Overall Grade Distribution (Percentage)")
+
+    overall_grade_dist = df["Grade"].value_counts().reindex(grade_order).fillna(0)
+    total_students = overall_grade_dist.sum()
+    percentage_labels = [f"{g}: {int(c)} students ({c/total_students:.1%})" for g, c in overall_grade_dist.items() if c > 0]
+
+    fig2, ax2 = plt.subplots()
+    ax2.pie(overall_grade_dist[overall_grade_dist > 0], labels=percentage_labels, autopct='%1.1f%%', startangle=140, counterclock=False)
+    ax2.set_title("Overall Grade Distribution (All Classes)")
+    st.pyplot(fig2)
+
+    st.markdown("Each segment of the pie chart shows the percentage and count of students falling under each grade across all classes.")
 
     st.subheader("🔍 Cluster Analysis (CA% vs Exam%)")
     valid_scores = df[pd.to_numeric(df["Overall"], errors="coerce").notna()]

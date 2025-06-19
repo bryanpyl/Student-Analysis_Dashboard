@@ -91,13 +91,19 @@ if uploaded_file:
     numeric_overall = pd.to_numeric(df["Overall"], errors="coerce")
     benchmark = numeric_overall.mean()
     df["Above_Benchmark"] = numeric_overall > benchmark
-
+    
+    # -----------------------
+    # Preview Dataset
+    # -----------------------
     st.subheader("📌 Preview Data")
     st.dataframe(df.head())
 
     st.subheader("📈 Descriptive Statistics")
     st.dataframe(df[["CA_Percent", "Exam_Percent", "Overall"]].apply(pd.to_numeric, errors='coerce').describe())
-
+    st.markdown("<hr style='border:1px solid lightgrey'>", unsafe_allow_html=True)
+    # -----------------------
+    # Gender-Grade Analysis
+    # -----------------------
     st.subheader("👫 Gender Distribution")
     gender_count = df["Gender"].value_counts()
     col1, col2 = st.columns(2)
@@ -105,8 +111,14 @@ if uploaded_file:
         st.dataframe(gender_count.rename("Count"))
     with col2:
         st.bar_chart(gender_count)
-
+    st.markdown("<hr style='border:1px solid lightgrey'>", unsafe_allow_html=True)
+    # -----------------------
+    # Grade distribution (Overall, barchart and table)
+    # -----------------------
     st.subheader("🎓 Grade Distribution")
+
+    # --- Overall Grade Distribution ---
+    st.markdown("#### 🧮 Overall")
     grade_dist = df["Grade"].value_counts().reindex(grade_order).fillna(0).astype(int)
     col1, col2 = st.columns(2)
     with col1:
@@ -114,6 +126,26 @@ if uploaded_file:
     with col2:
         st.bar_chart(grade_dist)
 
+    # --- Class-wise Grade Distribution ---
+    st.markdown("#### 🏷️ By Class")
+    classes = sorted(df["Class"].dropna().unique())
+
+    for class_name in classes:
+        with st.expander(f"📘 Class: {class_name}", expanded=False):
+            class_df = df[df["Class"] == class_name]
+            class_grade_dist = class_df["Grade"].value_counts().reindex(grade_order).fillna(0).astype(int)
+
+            col1, col2 = st.columns(2)
+            with col1:
+                st.dataframe(class_grade_dist.rename("Count"))
+            with col2:
+                st.bar_chart(class_grade_dist)
+
+    st.markdown("<hr style='border:1px solid lightgrey'>", unsafe_allow_html=True)
+
+    # -----------------------
+    # Mean Scores by Gender and Class
+    # -----------------------
     st.subheader("📊 Average Scores by Gender")
     st.dataframe(df.groupby("Gender")[["CA_Percent", "Exam_Percent", "Overall"]].mean())
 
@@ -123,17 +155,26 @@ if uploaded_file:
     st.subheader("📌 Overall Mean Score by Class")
     df["Numeric_Overall"] = numeric_overall
     st.bar_chart(df.groupby("Class")["Numeric_Overall"].mean())
-
+    st.markdown("<hr style='border:1px solid lightgrey'>", unsafe_allow_html=True)
+    # -----------------------
+    # Gender-wise Grade Distribution
+    # -----------------------
     st.subheader("🧮 Gender-wise Grade Distribution")
     st.dataframe(df.groupby(["Gender", "Grade"]).size().unstack(fill_value=0).reindex(columns=grade_order, fill_value=0))
-
+    st.markdown("<hr style='border:1px solid lightgrey'>", unsafe_allow_html=True)
+    # -----------------------
+    # Benchmark Analysis (Mean)
+    # -----------------------
     st.subheader("📉 Above/Below Average Performance")
     above = df["Above_Benchmark"].sum()
     below = len(df) - above
     col1, col2 = st.columns(2)
     col1.metric("Above Benchmark", above)
     col2.metric("Below Benchmark", below)
-    
+    st.markdown("<hr style='border:1px solid lightgrey'>", unsafe_allow_html=True)
+    # -----------------------
+    # Graphical Analysis
+    # -----------------------
     st.subheader("📊 Graphical Analysis")
 
     # 1. Grade distribution by class (bar chart)
@@ -151,6 +192,7 @@ if uploaded_file:
     ax1.set_title("Grade Distribution by Class")
     ax1.legend(title="Grade", bbox_to_anchor=(1.05, 1), loc="upper left")
     st.pyplot(fig1)
+    st.markdown("<hr style='border:1px solid lightgrey'>", unsafe_allow_html=True)
 
     # 2. Overall grade distribution (pie chart)
     st.markdown("### 📌 Overall Grade Distribution (Percentage)")
@@ -160,12 +202,15 @@ if uploaded_file:
     percentage_labels = [f"{g}: {int(c)} students ({c/total_students:.1%})" for g, c in overall_grade_dist.items() if c > 0]
 
     fig2, ax2 = plt.subplots()
-    ax2.pie(overall_grade_dist[overall_grade_dist > 0], labels=percentage_labels, autopct='%1.1f%%', startangle=140, counterclock=False)
-    ax2.set_title("Overall Grade Distribution (All Classes)")
+    ax2.pie(overall_grade_dist[overall_grade_dist > 0], labels=percentage_labels, labeldistance=1.1, textprops={'fontsize': 12, 'fontweight': 'normal'}, autopct='%1.1f%%', startangle=140, counterclock=False)
+    ax2.set_title("Overall Grade Distribution (All Classes)", fontsize=14, fontweight='bold')
     st.pyplot(fig2)
 
     st.markdown("Each segment of the pie chart shows the percentage and count of students falling under each grade across all classes.")
-
+    st.markdown("<hr style='border:1px solid lightgrey'>", unsafe_allow_html=True)
+    # -----------------------
+    # Cluster Analysis
+    # -----------------------
     st.subheader("🔍 Cluster Analysis (CA% vs Exam%)")
     valid_scores = df[pd.to_numeric(df["Overall"], errors="coerce").notna()]
     if not valid_scores.empty:

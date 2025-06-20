@@ -24,16 +24,17 @@ with st.expander("📘 Instructions: Preparing Your Excel File", expanded=True):
     - **Exam_Marks**: Final exam marks (numeric or 'ABS' if absent)
     - **Exam_Percent**: Exam percentage (numeric, will be calculated if not provided)
     - **Total**: Total marks (numeric, will be calculated as CA_Percent + Exam_Percent)
+    - **Grade**: Student's grade (A*, A, B, C, D, E.......)  
 
     **Example Column Headers**:
     ```
-    Name, Gender, Class, CA_Marks, CA_Percent, Exam_Marks, Exam_Percent, Total
+    Name, Gender, Class, CA_Marks, CA_Percent, Exam_Marks, Exam_Percent, Total, Grade
     ```
 
     **Note**:
     - The column names are **case-insensitive**, but ensure they follow the exact format.
     - Avoid extra spaces in headers or leave cells empty.
-    - 'ABS' will be treated as absent and excluded from numerical computations.
+    - 'ABS' will be treated as **absent** and excluded from numerical computations.
     """)
 
 # -----------------------

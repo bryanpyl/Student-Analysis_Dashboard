@@ -5,12 +5,75 @@ from sklearn.cluster import KMeans
 from fpdf import FPDF
 import tempfile
 import os
+from PIL import Image
 
 st.set_page_config(page_title="Student Performance Dashboard", layout="wide")
 st.title("📊 Student Performance Dashboard")
 
 # -----------------------
-# Instruction Section
+# PDF Generation Function
+# -----------------------
+def generate_pdf_report(df, benchmark, grade_dist, grade_by_class, overall_pie_path, cluster_chart_path, overall_bar_chart_path, class_bar_chart_paths):
+    from fpdf import FPDF
+    import matplotlib.pyplot as plt
+    import os
+    import tempfile
+
+    # Grade order consistency
+    grade_order = ["A*", "A", "B", "C", "D", "E", "U", "ABS"]
+
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(0, 10, "Student Performance Report", ln=True, align='C')
+
+    # ----------------- Overall Grade Distribution Charts -----------------
+    pdf.set_font("Arial", 'B', 12)
+    pdf.ln(3)
+    pdf.cell(0, 10, "Overall Grade Distribution (Bar Chart)", ln=True)
+    if os.path.exists(overall_bar_chart_path):
+        pdf.image(overall_bar_chart_path, w=180)
+
+    pdf.ln(4)
+    if os.path.exists(overall_pie_path):
+        pdf.image(overall_pie_path, w=180)
+
+    # ----------------- Cluster Analysis -----------------
+    pdf.add_page()
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(0, 10, "Cluster Analysis (CA% vs Exam%)", ln=True)
+    if cluster_chart_path and os.path.exists(cluster_chart_path):
+        pdf.image(cluster_chart_path, w=180)
+
+    # ----------------- Benchmark Summary -----------------
+    above = df["Above_Benchmark"].sum()
+    below = len(df) - above
+    pdf.ln(5)
+    pdf.set_font("Arial", '', 12)
+    pdf.multi_cell(0, 10, f"Benchmark (Mean Overall Score): {benchmark:.2f}\n"
+                          f"Above Benchmark: {above} students\n"
+                          f"Below Benchmark: {below} students")
+
+    # ----------------- Class-wise Grade Distributions -----------------
+    pdf.add_page()
+    pdf.set_font("Arial", "B", 14)
+    pdf.cell(0, 10, "Grade Distribution by Class", ln=True)
+
+    for class_name, path in class_bar_chart_paths.items():
+        pdf.set_font("Arial", "B", 12)
+        pdf.cell(0, 10, f"Class: {class_name}", ln=True)
+        pdf.image(path, w=150)
+        pdf.ln(5)
+
+    # ----------------- Save PDF -----------------
+    pdf_path = os.path.join(tempfile.gettempdir(), "student_report.pdf")
+    pdf.output(pdf_path)
+    return pdf_path
+
+# -----------------------
+# Instructions Section
 # -----------------------
 with st.expander("📘 Instructions: Preparing Your Excel File", expanded=True):
     st.markdown("""
@@ -46,41 +109,31 @@ if uploaded_file:
     if uploaded_file.name.endswith('.csv'):
         df = pd.read_csv(uploaded_file)
     else:
-        # Read all sheets into a dictionary
         all_sheets = pd.read_excel(uploaded_file, sheet_name=None)
-
-        # Convert each sheet into a DataFrame and tag with the sheet name as class if 'Class' is missing
         dataframes = []
         for sheet_name, sheet_df in all_sheets.items():
             sheet_df.columns = sheet_df.columns.str.strip().str.replace(" ", "_")
             if "Class" not in sheet_df.columns:
                 sheet_df["Class"] = sheet_name
             dataframes.append(sheet_df)
-
-        # Combine all sheets into a single DataFrame
         df = pd.concat(dataframes, ignore_index=True)
-    
+
     df.columns = df.columns.str.strip().str.replace(" ", "_")
 
     df["CA_Percent"] = pd.to_numeric(df["CA_Percent"], errors="coerce")
-    df["Exam_Percent"] = pd.to_numeric(df["Exam_Percent"], errors="coerce")  
-
-   # Use 'Total' column directly as Overall (respect ABS if present)
+    df["Exam_Percent"] = pd.to_numeric(df["Exam_Percent"], errors="coerce")
     df["Overall"] = df["Total"].apply(lambda x: "ABS" if str(x).strip().upper() == "ABS" else pd.to_numeric(x, errors="coerce"))
 
     df["Grade"] = df["Grade"].str.strip().str.upper()
-    # Define the valid grade categories
     grade_order = ["A*", "A", "B", "C", "D", "E", "U", "ABS"]
-    # Convert to categorical with proper ordering
     df["Grade"] = pd.Categorical(df["Grade"], categories=grade_order, ordered=True)
 
-    # Calculate numeric overall for benchmark (if needed)
     numeric_overall = pd.to_numeric(df["Overall"], errors="coerce")
     benchmark = numeric_overall.mean()
     df["Above_Benchmark"] = numeric_overall > benchmark
-    
+
     # -----------------------
-    # Preview Dataset
+    # Display Data
     # -----------------------
     st.subheader("📌 Preview Data")
     st.dataframe(df.head())
@@ -88,12 +141,11 @@ if uploaded_file:
     st.subheader("📈 Descriptive Statistics")
     st.dataframe(df[["CA_Percent", "Exam_Percent", "Overall"]].apply(pd.to_numeric, errors='coerce').describe())
     st.markdown("<hr style='border:1px solid lightgrey'>", unsafe_allow_html=True)
+
     # -----------------------
-    # Grade distribution (Overall, barchart and table)
+    # Grade Distribution
     # -----------------------
     st.subheader("🎓 Grade Distribution")
-
-    # --- Overall Grade Distribution ---
     st.markdown("#### 🧮 Overall")
     grade_dist = df["Grade"].value_counts().reindex(grade_order).fillna(0).astype(int)
     col1, col2 = st.columns(2)
@@ -101,36 +153,71 @@ if uploaded_file:
         st.dataframe(grade_dist.rename("Count"))
     with col2:
         st.bar_chart(grade_dist)
+    
+    fig_overall_bar, ax = plt.subplots()
+    grade_dist.plot(kind="bar", ax=ax, color="skyblue")
+    ax.set_title("Overall Grade Distribution")
+    ax.set_ylabel("Number of Students")
+    ax.set_xlabel("Grade")
+    fig_overall_bar.tight_layout()
 
-    # --- Class-wise Grade Distribution ---
+    overall_bar_chart_path = os.path.join(tempfile.gettempdir(), "overall_grade_bar_chart.png")
+    fig_overall_bar.savefig(overall_bar_chart_path, bbox_inches="tight")
+    plt.close(fig_overall_bar)
+
     st.markdown("#### 🏷️ By Class")
     classes = sorted(df["Class"].dropna().unique())
-
     for class_name in classes:
         with st.expander(f"📘 Class: {class_name}", expanded=False):
             class_df = df[df["Class"] == class_name]
             class_grade_dist = class_df["Grade"].value_counts().reindex(grade_order).fillna(0).astype(int)
-
             col1, col2 = st.columns(2)
             with col1:
                 st.dataframe(class_grade_dist.rename("Count"))
             with col2:
                 st.bar_chart(class_grade_dist)
+                
+    class_bar_chart_paths = {}
+    for class_name in classes:
+        class_df = df[df["Class"] == class_name]
+        class_grade_dist = class_df["Grade"].value_counts().reindex(grade_order).fillna(0).astype(int)
+
+        fig_class_bar, ax = plt.subplots()
+        class_grade_dist.plot(kind="bar", ax=ax, color="lightgreen")
+        ax.set_title(f"Grade Distribution - Class {class_name}")
+        ax.set_ylabel("Number of Students")
+        ax.set_xlabel("Grade")
+        fig_class_bar.tight_layout()
+
+        path = os.path.join(tempfile.gettempdir(), f"class_{class_name}_bar_chart.png")
+        fig_class_bar.savefig(path, bbox_inches="tight")
+        plt.close(fig_class_bar)
+
+        class_bar_chart_paths[class_name] = path
 
     st.markdown("<hr style='border:1px solid lightgrey'>", unsafe_allow_html=True)
 
     # -----------------------
-    # Mean Scores Class
+    # Class Performance Summary
     # -----------------------
     st.subheader("🏫 Class Performance Summary")
     st.dataframe(df.groupby("Class")[["CA_Percent", "Exam_Percent", "Overall"]].describe().round(2))
 
     st.subheader("📌 Overall Mean Score by Class")
     df["Numeric_Overall"] = numeric_overall
-    st.bar_chart(df.groupby("Class")["Numeric_Overall"].mean())
+    fig1, ax1 = plt.subplots(figsize=(10, 5))
+    df.groupby("Class")["Numeric_Overall"].mean().plot(kind="bar", ax=ax1)
+    ax1.set_title("Grade Distribution by Class")
+    ax1.set_ylabel("Mean Overall")
+    ax1.set_xlabel("Class")
+    st.pyplot(fig1)
+    grade_bar_chart_path = os.path.join(tempfile.gettempdir(), "grade_bar_chart.png")
+    fig1.savefig(grade_bar_chart_path, bbox_inches="tight")
+
     st.markdown("<hr style='border:1px solid lightgrey'>", unsafe_allow_html=True)
+
     # -----------------------
-    # Benchmark Analysis (Mean)
+    # Benchmark Analysis
     # -----------------------
     st.subheader("📉 Above/Below Average Performance")
     above = df["Above_Benchmark"].sum()
@@ -139,43 +226,29 @@ if uploaded_file:
     col1.metric("Above Benchmark", above)
     col2.metric("Below Benchmark", below)
     st.markdown("<hr style='border:1px solid lightgrey'>", unsafe_allow_html=True)
+
     # -----------------------
-    # Graphical Analysis
+    # Pie Chart
     # -----------------------
-    # 1. Grade distribution by class (bar chart)
-    st.markdown("### 🎯 Grade Distribution by Class")
-
-    grade_by_class = df.groupby(['Class', 'Grade']).size().unstack(fill_value=0).reindex(columns=grade_order, fill_value=0)
-
-    st.dataframe(grade_by_class)
-
-    st.markdown("Bar chart showing number of students in each grade category for every class.")
-    fig1, ax1 = plt.subplots(figsize=(10, 5))
-    grade_by_class.plot(kind="bar", ax=ax1)
-    ax1.set_ylabel("Number of Students")
-    ax1.set_xlabel("Class")
-    ax1.set_title("Grade Distribution by Class")
-    ax1.legend(title="Grade", bbox_to_anchor=(1.05, 1), loc="upper left")
-    st.pyplot(fig1)
-    st.markdown("<hr style='border:1px solid lightgrey'>", unsafe_allow_html=True)
-
-    # 2. Overall grade distribution (pie chart)
     overall_grade_dist = df["Grade"].value_counts().reindex(grade_order).fillna(0)
     total_students = overall_grade_dist.sum()
     percentage_labels = [f"{g}: {int(c)} students ({c/total_students:.1%})" for g, c in overall_grade_dist.items() if c > 0]
 
     fig2, ax2 = plt.subplots()
-    ax2.pie(overall_grade_dist[overall_grade_dist > 0], labels=percentage_labels, labeldistance=1.1, textprops={'fontsize': 12, 'fontweight': 'normal'}, autopct='%1.1f%%', startangle=140, counterclock=False)
-    ax2.set_title("Overall Grade Distribution (All Classes)", fontsize=14, fontweight='bold')
+    ax2.pie(overall_grade_dist[overall_grade_dist > 0], labels=percentage_labels,
+            labeldistance=1.1, textprops={'fontsize': 12}, autopct='%1.1f%%', startangle=140, counterclock=False)
+    ax2.set_title("Overall Grade Distribution (All Classes)")
     st.pyplot(fig2)
+    overall_pie_path = os.path.join(tempfile.gettempdir(), "overall_pie_chart.png")
+    fig2.savefig(overall_pie_path, bbox_inches="tight")
 
-    st.markdown("Each segment of the pie chart shows the percentage and count of students falling under each grade across all classes.")
-    st.markdown("<hr style='border:1px solid lightgrey'>", unsafe_allow_html=True)
     # -----------------------
     # Cluster Analysis
     # -----------------------
     st.subheader("🔍 Cluster Analysis (CA% vs Exam%)")
     valid_scores = df[pd.to_numeric(df["Overall"], errors="coerce").notna()]
+    cluster_chart_path = None
+
     if not valid_scores.empty:
         kmeans = KMeans(n_clusters=3, n_init=10)
         valid_scores = valid_scores.copy()
@@ -191,127 +264,34 @@ if uploaded_file:
         ax.set_title("Student Performance Clusters")
         ax.legend()
         st.pyplot(fig)
+        cluster_chart_path = os.path.join(tempfile.gettempdir(), "cluster_chart.png")
+        fig.savefig(cluster_chart_path, bbox_inches="tight")
     else:
         st.info("❗ Not enough valid numeric data to perform clustering.")
 
+    # -----------------------
+    # PDF Report Button
+    # -----------------------
+    st.markdown("<hr style='border:1px solid lightgrey'>", unsafe_allow_html=True)
+    st.subheader("📝 Download Full PDF Report")
+
+    if st.button("📄 Generate PDF Report"):
+        with st.spinner("Generating report..."):
+                        report_path = generate_pdf_report(
+                df=df,
+                benchmark=benchmark,
+                grade_dist=grade_dist,
+                grade_by_class=df.groupby(['Class', 'Grade']).size().unstack(fill_value=0).reindex(columns=grade_order, fill_value=0),
+                overall_pie_path=overall_pie_path,
+                cluster_chart_path=cluster_chart_path,
+                overall_bar_chart_path=overall_bar_chart_path,
+                class_bar_chart_paths=class_bar_chart_paths
+            )
+
+        with open(report_path, "rb") as f:
+            st.download_button("📥 Download PDF Report", data=f, file_name="student_performance_report.pdf", mime="application/pdf")
+
+    # -----------------------
+    # CSV Export
+    # -----------------------
     st.download_button("📥 Download Analyzed CSV", data=df.to_csv(index=False), file_name="student_analysis_results.csv", mime="text/csv")
-    # -----------------------
-    # PDF Report Generation
-    # -----------------------
-
-    if st.button("🖨️ Generate PDF Report"):
-        with tempfile.TemporaryDirectory() as tmpdirname:
-            # Save charts
-            grade_by_class_path = os.path.join(tmpdirname, "grade_by_class.png")
-            fig1.savefig(grade_by_class_path, bbox_inches='tight')
-
-            overall_grade_pie_path = os.path.join(tmpdirname, "overall_grade_pie.png")
-            fig2.savefig(overall_grade_pie_path, bbox_inches='tight')
-
-            cluster_path = os.path.join(tmpdirname, "cluster_plot.png")
-            if 'fig' in locals():
-                fig.savefig(cluster_path, bbox_inches='tight')
-
-            # Generate Summary Tables
-            grade_counts = df["Grade"].value_counts().reindex(grade_order).fillna(0).astype(int)
-            grade_counts["Total"] = grade_counts.sum()
-            grade_count_by_class = df.pivot_table(index="Class", columns="Grade", aggfunc='size', fill_value=0).reindex(columns=grade_order, fill_value=0)
-            grade_count_by_class["Total"] = grade_count_by_class.sum(axis=1)
-            class_summary = df.groupby("Class")[["CA_Percent", "Exam_Percent", "Overall"]].mean().round(2)
-            descriptive_stats = df[["CA_Percent", "Exam_Percent", "Overall"]].apply(pd.to_numeric, errors='coerce').describe().round(2)
-
-            # Create PDF
-            pdf = FPDF()
-            pdf.set_auto_page_break(auto=True, margin=15)
-            pdf.add_page()
-
-            pdf.set_font("Arial", 'B', 16)
-            pdf.cell(0, 10, "Student Performance Report", ln=True, align="C")
-
-            pdf.set_font("Arial", '', 12)
-            pdf.ln(10)
-            pdf.cell(0, 10, f"Total Students: {len(df)}", ln=True)
-            pdf.cell(0, 10, f"Mean Benchmark Score: {benchmark:.2f}", ln=True)
-            pdf.cell(0, 10, f"Above Benchmark: {above}", ln=True)
-            pdf.cell(0, 10, f"Below Benchmark: {below}", ln=True)
-
-            # Grade Distribution Table
-            pdf.ln(8)
-            pdf.set_font("Arial", 'B', 12)
-            pdf.cell(0, 10, "Grade Count Summary by Class", ln=True)
-
-            # Set column width based on page size
-            usable_width = 190  # A4 width minus default 10mm margins on both sides
-            num_columns = len(grade_order) + 2  # Grades + Class + Total
-            col_width = usable_width / num_columns
-
-            # Table header
-            pdf.set_font("Arial", 'B', 9)
-            pdf.cell(col_width, 8, "Class", 1)
-            for grade in grade_order:
-                pdf.cell(col_width, 8, grade, 1)
-            pdf.cell(col_width, 8, "Total", 1)
-            pdf.ln()
-
-            # Table rows
-            pdf.set_font("Arial", '', 8)
-            for class_name, row in grade_count_by_class.iterrows():
-                pdf.cell(col_width, 8, str(class_name), 1)
-                for grade in grade_order:
-                    pdf.cell(col_width, 8, str(row[grade]), 1)
-                pdf.cell(col_width, 8, str(row["Total"]), 1)
-                pdf.ln()
-
-            # Class Performance Summary Table
-            pdf.ln(8)
-            pdf.set_font("Arial", 'B', 12)
-            pdf.cell(0, 10, "Class Summary (Average CA%, Exam%, Overall)", ln=True)
-            pdf.set_font("Arial", '', 9)
-            col_width = 40
-            pdf.cell(col_width, 8, "Class", 1)
-            for col in class_summary.columns:
-                pdf.cell(col_width, 8, col, 1)
-            pdf.ln()
-            for idx, row in class_summary.iterrows():
-                pdf.cell(col_width, 8, str(idx), 1)
-                for val in row:
-                    pdf.cell(col_width, 8, str(val), 1)
-                pdf.ln()
-
-            # Descriptive Statistics
-            pdf.ln(8)
-            pdf.set_font("Arial", 'B', 12)
-            pdf.cell(0, 10, "Descriptive Statistics", ln=True)
-            pdf.set_font("Arial", '', 9)
-            pdf.cell(col_width, 8, "Metric", 1)
-            for col in descriptive_stats.columns:
-                pdf.cell(col_width, 8, col, 1)
-            pdf.ln()
-            for idx, row in descriptive_stats.iterrows():
-                pdf.cell(col_width, 8, str(idx), 1)
-                for val in row:
-                    pdf.cell(col_width, 8, str(val), 1)
-                pdf.ln()
-
-            # Charts
-            pdf.add_page()
-            pdf.set_font("Arial", 'B', 12)
-            pdf.cell(0, 10, "Grade Distribution by Class", ln=True)
-            pdf.image(grade_by_class_path, w=180)
-
-            pdf.ln(10)
-            pdf.image(overall_grade_pie_path, w=150)
-
-            if os.path.exists(cluster_path):
-                pdf.add_page()
-                pdf.cell(0, 10, "Performance Cluster Chart", ln=True)
-                pdf.image(cluster_path, w=180)
-
-            # Save and Download
-            pdf_output_path = os.path.join(tmpdirname, "Student_Performance_Report.pdf")
-            pdf.output(pdf_output_path)
-
-            with open(pdf_output_path, "rb") as f:
-                st.download_button("📄 Download PDF Report", data=f, file_name="Student_Performance_Report.pdf", mime="application/pdf")
-
-        

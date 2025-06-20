@@ -39,16 +39,6 @@ with st.expander("📘 Instructions: Preparing Your Excel File", expanded=True):
     """)
 
 # -----------------------
-# Sidebar Inputs
-# -----------------------
-st.sidebar.header("🔧 Assessment Settings")
-ca_total = st.sidebar.number_input("Total CA Marks", min_value=1, value=100)
-exam_total = st.sidebar.number_input("Total Exam Marks", min_value=1, value=50)
-ca_weight = st.sidebar.slider("CA Weight (%)", min_value=0, max_value=100, value=50)
-exam_weight = 100 - ca_weight
-st.sidebar.write(f"Exam Weight: {exam_weight}%")
-
-# -----------------------
 # File Upload
 # -----------------------
 uploaded_file = st.file_uploader("📁 Upload the student CSV or Excel file", type=["csv", "xlsx", "xls"])
@@ -73,39 +63,19 @@ if uploaded_file:
     
     df.columns = df.columns.str.strip().str.replace(" ", "_")
 
-    df["CA_Percent"] = (pd.to_numeric(df["CA_Marks"], errors="coerce") / ca_total) * ca_weight
-    df["Exam_Percent"] = (pd.to_numeric(df["Exam_Marks"], errors="coerce") / exam_total) * exam_weight
-
-    def compute_overall(ca, exam):
-        if str(ca).strip().upper() == "ABS" or str(exam).strip().upper() == "ABS":
-            return "ABS"
-        try:
-            return float(ca) + float(exam)
-        except:
-            return None
+    df["CA_Percent"] = pd.to_numeric(df["CA_Percent"], errors="coerce")
+    df["Exam_Percent"] = pd.to_numeric(df["Exam_Percent"], errors="coerce")  
 
    # Use 'Total' column directly as Overall (respect ABS if present)
     df["Overall"] = df["Total"].apply(lambda x: "ABS" if str(x).strip().upper() == "ABS" else pd.to_numeric(x, errors="coerce"))
 
-    def get_grade(score):
-        if str(score).strip().upper() == "ABS":
-            return "ABS"
-        try:
-            score = float(score)
-            if score >= 90: return "A*"
-            elif score >= 80: return "A"
-            elif score >= 70: return "B"
-            elif score >= 60: return "C"
-            elif score >= 50: return "D"
-            elif score >= 40: return "E"
-            else: return "U"
-        except:
-            return "U"
-
-    df["Grade"] = df["Overall"].apply(get_grade)
+    df["Grade"] = df["Grade"].str.strip().str.upper()
+    # Define the valid grade categories
     grade_order = ["A*", "A", "B", "C", "D", "E", "U", "ABS"]
+    # Convert to categorical with proper ordering
     df["Grade"] = pd.Categorical(df["Grade"], categories=grade_order, ordered=True)
 
+    # Calculate numeric overall for benchmark (if needed)
     numeric_overall = pd.to_numeric(df["Overall"], errors="coerce")
     benchmark = numeric_overall.mean()
     df["Above_Benchmark"] = numeric_overall > benchmark

@@ -1,4 +1,4 @@
-# 📊 Student Performance Dashboard - README
+# 📊 Student Performance Dashboard
 
 ## Overview
 A Streamlit-based web application for analyzing and visualizing student performance data. The dashboard processes uploaded Excel/CSV files containing student records and provides comprehensive analytics including grade distributions, class comparisons, and cluster analysis of assessment patterns.

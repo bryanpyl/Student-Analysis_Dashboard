@@ -13,7 +13,7 @@ st.title("📊 Student Performance Dashboard")
 # -----------------------
 # PDF Generation Function
 # -----------------------
-def generate_pdf_report(df, benchmark, grade_dist, grade_by_class, overall_pie_path, cluster_chart_path, overall_bar_chart_path, class_bar_chart_paths):
+def generate_pdf_report(df, benchmark, grade_dist, grade_by_class, overall_pie_path, cluster_chart_path, overall_bar_chart_path, class_bar_chart_paths, report_title="Student Performance Report"):
     from fpdf import FPDF
     import matplotlib.pyplot as plt
     import os
@@ -27,18 +27,19 @@ def generate_pdf_report(df, benchmark, grade_dist, grade_by_class, overall_pie_p
     pdf.add_page()
 
     pdf.set_font("Arial", 'B', 16)
-    pdf.cell(0, 10, "Student Performance Report", ln=True, align='C')
+    pdf.cell(0, 10, report_title, ln=True, align='C')
 
     # ----------------- Overall Grade Distribution Charts -----------------
     pdf.set_font("Arial", 'B', 12)
     pdf.ln(3)
     pdf.cell(0, 10, "Overall Grade Distribution (Bar Chart)", ln=True)
     if os.path.exists(overall_bar_chart_path):
-        pdf.image(overall_bar_chart_path, w=180)
+        pdf.image(overall_bar_chart_path, w=170)
 
     pdf.ln(4)
+    pdf.cell(0, 10, "Overall Grade Distribution (Pie Chart)", ln=True)
     if os.path.exists(overall_pie_path):
-        pdf.image(overall_pie_path, w=180)
+        pdf.image(overall_pie_path, w=170)
 
     # ----------------- Cluster Analysis -----------------
     pdf.add_page()
@@ -64,8 +65,8 @@ def generate_pdf_report(df, benchmark, grade_dist, grade_by_class, overall_pie_p
     for class_name, path in class_bar_chart_paths.items():
         pdf.set_font("Arial", "B", 12)
         pdf.cell(0, 10, f"Class: {class_name}", ln=True)
-        pdf.image(path, w=150)
-        pdf.ln(5)
+        pdf.image(path, w=140)
+        pdf.ln(4)
 
     # ----------------- Save PDF -----------------
     pdf_path = os.path.join(tempfile.gettempdir(), "student_report.pdf")
@@ -154,15 +155,23 @@ if uploaded_file:
     with col2:
         st.bar_chart(grade_dist)
     
+    # Create version for PDF (with numbers on bars)
     fig_overall_bar, ax = plt.subplots()
-    grade_dist.plot(kind="bar", ax=ax, color="skyblue")
-    ax.set_title("Overall Grade Distribution")
+    bars = grade_dist.plot(kind="bar", ax=ax, color="skyblue")
     ax.set_ylabel("Number of Students")
     ax.set_xlabel("Grade")
-    fig_overall_bar.tight_layout()
 
+    # Add numbers on top of each bar (PDF only)
+    for bar in bars.patches:
+        height = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width()/2., height,
+                f'{int(height)}',
+                ha='center', va='bottom',
+                fontsize=10)
+
+    fig_overall_bar.tight_layout()
     overall_bar_chart_path = os.path.join(tempfile.gettempdir(), "overall_grade_bar_chart.png")
-    fig_overall_bar.savefig(overall_bar_chart_path, bbox_inches="tight")
+    fig_overall_bar.savefig(overall_bar_chart_path, bbox_inches="tight", dpi=300)
     plt.close(fig_overall_bar)
 
     st.markdown("#### 🏷️ By Class")
@@ -177,24 +186,31 @@ if uploaded_file:
             with col2:
                 st.bar_chart(class_grade_dist)
                 
+    # Generate class distribution charts for PDF with numbers
     class_bar_chart_paths = {}
     for class_name in classes:
         class_df = df[df["Class"] == class_name]
         class_grade_dist = class_df["Grade"].value_counts().reindex(grade_order).fillna(0).astype(int)
 
-        fig_class_bar, ax = plt.subplots()
-        class_grade_dist.plot(kind="bar", ax=ax, color="lightgreen")
+        fig, ax = plt.subplots()
+        bars = class_grade_dist.plot(kind="bar", ax=ax, color="lightgreen")
         ax.set_title(f"Grade Distribution - Class {class_name}")
         ax.set_ylabel("Number of Students")
         ax.set_xlabel("Grade")
-        fig_class_bar.tight_layout()
-
+        
+        # Add numbers on bars (PDF only)
+        for bar in bars.patches:
+            height = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width()/2., height,
+                    f'{int(height)}',
+                    ha='center', va='bottom',
+                    fontsize=10)
+        
         path = os.path.join(tempfile.gettempdir(), f"class_{class_name}_bar_chart.png")
-        fig_class_bar.savefig(path, bbox_inches="tight")
-        plt.close(fig_class_bar)
-
+        fig.savefig(path, bbox_inches="tight", dpi=300)
+        plt.close(fig)
+        
         class_bar_chart_paths[class_name] = path
-
     st.markdown("<hr style='border:1px solid lightgrey'>", unsafe_allow_html=True)
 
     # -----------------------
@@ -230,6 +246,7 @@ if uploaded_file:
     # -----------------------
     # Pie Chart
     # -----------------------
+    st.subheader("📉  Overall Grade Distribution (Pie Chart)")
     overall_grade_dist = df["Grade"].value_counts().reindex(grade_order).fillna(0)
     total_students = overall_grade_dist.sum()
     percentage_labels = [f"{g}: {int(c)} students ({c/total_students:.1%})" for g, c in overall_grade_dist.items() if c > 0]
@@ -237,7 +254,6 @@ if uploaded_file:
     fig2, ax2 = plt.subplots()
     ax2.pie(overall_grade_dist[overall_grade_dist > 0], labels=percentage_labels,
             labeldistance=1.1, textprops={'fontsize': 12}, autopct='%1.1f%%', startangle=140, counterclock=False)
-    ax2.set_title("Overall Grade Distribution (All Classes)")
     st.pyplot(fig2)
     overall_pie_path = os.path.join(tempfile.gettempdir(), "overall_pie_chart.png")
     fig2.savefig(overall_pie_path, bbox_inches="tight")
@@ -261,7 +277,6 @@ if uploaded_file:
             ax.scatter(cluster_df["CA_Percent"], cluster_df["Exam_Percent"], label=f"Cluster {int(cluster)}")
         ax.set_xlabel("CA_Percent")
         ax.set_ylabel("Exam_Percent")
-        ax.set_title("Student Performance Clusters")
         ax.legend()
         st.pyplot(fig)
         cluster_chart_path = os.path.join(tempfile.gettempdir(), "cluster_chart.png")
@@ -270,28 +285,47 @@ if uploaded_file:
         st.info("❗ Not enough valid numeric data to perform clustering.")
 
     # -----------------------
-    # PDF Report Button
+    # Sidebar Configuration
     # -----------------------
-    st.markdown("<hr style='border:1px solid lightgrey'>", unsafe_allow_html=True)
-    st.subheader("📝 Download Full PDF Report")
-
-    if st.button("📄 Generate PDF Report"):
-        with st.spinner("Generating report..."):
-                        report_path = generate_pdf_report(
-                df=df,
-                benchmark=benchmark,
-                grade_dist=grade_dist,
-                grade_by_class=df.groupby(['Class', 'Grade']).size().unstack(fill_value=0).reindex(columns=grade_order, fill_value=0),
-                overall_pie_path=overall_pie_path,
-                cluster_chart_path=cluster_chart_path,
-                overall_bar_chart_path=overall_bar_chart_path,
-                class_bar_chart_paths=class_bar_chart_paths
-            )
-
-        with open(report_path, "rb") as f:
-            st.download_button("📥 Download PDF Report", data=f, file_name="student_performance_report.pdf", mime="application/pdf")
-
-    # -----------------------
-    # CSV Export
-    # -----------------------
-    st.download_button("📥 Download Analyzed CSV", data=df.to_csv(index=False), file_name="student_analysis_results.csv", mime="text/csv")
+    with st.sidebar:
+        st.header("Export Options")
+        
+        # PDF Report Options
+        pdf_title = st.text_input("PDF Report Title", "Student Performance Report")
+        pdf_filename = st.text_input("PDF Filename (without .pdf)", "student_performance_report")
+        
+        # CSV Export Options
+        csv_filename = st.text_input("CSV Filename (without .csv)", "student_analysis_results")
+        
+        st.markdown("---")
+        
+        # PDF Report Button
+        if st.button("📄 Generate PDF Report"):
+            with st.spinner("Generating report..."):
+                report_path = generate_pdf_report(
+                    df=df,
+                    benchmark=benchmark,
+                    grade_dist=grade_dist,
+                    grade_by_class=df.groupby(['Class', 'Grade']).size().unstack(fill_value=0).reindex(columns=grade_order, fill_value=0),
+                    overall_pie_path=overall_pie_path,
+                    cluster_chart_path=cluster_chart_path,
+                    overall_bar_chart_path=overall_bar_chart_path,
+                    class_bar_chart_paths=class_bar_chart_paths,
+                    report_title=pdf_title  # Pass the user-defined title
+                )
+            
+            with open(report_path, "rb") as f:
+                st.download_button(
+                    "📥 Download PDF Report", 
+                    data=f, 
+                    file_name=f"{pdf_filename}.pdf", 
+                    mime="application/pdf"
+                )
+        
+        # CSV Export Button
+        st.download_button(
+            "📥 Download Analyzed CSV", 
+            data=df.to_csv(index=False), 
+            file_name=f"{csv_filename}.csv", 
+            mime="text/csv"
+        )

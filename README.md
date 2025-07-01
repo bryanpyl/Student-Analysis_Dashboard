@@ -1,7 +1,7 @@
 # 📊 Student Performance Dashboard
 
 ## Overview
-A Streamlit-based web application for analyzing and visualizing student performance data. The dashboard processes uploaded Excel/CSV files containing student records and provides comprehensive analytics including grade distributions, class comparisons, and cluster analysis of assessment patterns.
+A Streamlit-based web application for analyzing and visualizing student's general performance data. The dashboard processes uploaded Excel/CSV files containing student records and provides analytics including grade distributions and class comparisons in charts, and the results can be exported to CSV or PDF format with set report title and file name.
 
 ## Features
 
@@ -20,23 +20,21 @@ A Streamlit-based web application for analyzing and visualizing student performa
   - PDF report generation with all visualizations
 
 ### 📂 Data Requirements
-Input files should contain these columns (case-insensitive):
+Input Excel spreadsheet should contain these columns (case-insensitive):
 - `Name` - Student names
-- `Gender` - Male/Female/Other
-- `Class` - Class identifier
-- `CA_Marks` - Continuous assessment marks (numeric or 'ABS')
-- `CA_Percent` - CA percentage
-- `Exam_Marks` - Final exam marks (numeric or 'ABS')  
-- `Exam_Percent` - Exam percentage
-- `Total` - Combined score
-- `Grade` - Letter grade (A*, A, B, etc.)
+- `Gender` - Male(M) /Female(F)
+- `Class` - Class identifier (e.g., 1A, 2A, 10Sc1)
+- `Assessment` - Continuous Assessment percentage (%)
+- `Examination` - Exam percentage (%)
+- `Total` - Combined score between Assessment and Examination
+- `Grade` - Letter grade (A*, A, B, C, D etc.)
 
 You may name your sheets as the class name in the spreadsheets. The software supports multiple class-sheets in one Excel spreadsheet.
 
 ## Installation
 
 ### Prerequisites
-- Python 3.11
+- Python 3.11 (when deploy at Streamlit)
 - pip package manager
 
 ### Setup

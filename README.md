@@ -31,10 +31,12 @@ Input files should contain these columns (case-insensitive):
 - `Total` - Combined score
 - `Grade` - Letter grade (A*, A, B, etc.)
 
+You may name your sheets as the class name in the spreadsheets. The software supports multiple class-sheets in one Excel spreadsheet.
+
 ## Installation
 
 ### Prerequisites
-- Python 3.8+
+- Python 3.11
 - pip package manager
 
 ### Setup

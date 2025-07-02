@@ -9,12 +9,9 @@ A Streamlit-based web application for analyzing and visualizing student's genera
 - **File Processing**: Handles both Excel (multi-sheet) and CSV files
 - **Data Analysis**:
   - Grade distribution statistics (overall and by class)
-  - Mean score comparisons across classes
-  - Benchmark analysis against cohort average
-  - K-means clustering of assessment patterns
+  - Score analysis against cohort average
 - **Visualizations**:
   - Interactive bar charts and pie charts
-  - Scatter plots for cluster analysis
 - **Reporting**:
   - CSV export of analyzed data
   - PDF report generation with all visualizations
@@ -72,9 +69,8 @@ Generated PDF reports include:
     - Grade distribution tables
     - Class performance comparisons  
     - All visualizations:
-        - Grade distribution charts
-        - Performance cluster plots
-        - Benchmark analysis
+        - Overall grade distribution charts
+        - Score analysis by class
 
 ## Customization
 To modify the application:
@@ -91,7 +87,7 @@ To modify the application:
    - Verify numeric columns contain only numbers or 'ABS'
 
 2. **Visualization Problems**:
-   - Large datasets may require plot adjustments
+   - Large datasets may require time for plot creation and adjustments
    - Try reducing the number of classes displayed
 
 3. **PDF Generation Failures**:

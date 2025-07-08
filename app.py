@@ -7,6 +7,7 @@ import tempfile
 import os
 import numpy as np
 from PIL import Image
+from pandas.plotting import table
 
 # Set matplotlib to not use interactive backend to prevent memory issues
 plt.switch_backend('Agg')
@@ -18,8 +19,9 @@ st.title("📊 Student Performance Dashboard")
 # PDF Generation Function
 # -----------------------
 def generate_pdf_report(df, benchmark, grade_dist, grade_by_class, overall_pie_path, 
-                       overall_bar_chart_path, class_bar_chart_paths, class_pie_chart_paths,
-                       report_title="Student Performance Report"):
+                       overall_bar_chart_path, class_bar_chart_paths, class_pie_chart_paths, 
+                       class_grade_bar_path, class_grade_table_path,
+                       gender_bar_chart_graph, gender_table_path=None, report_title="Student Performance Report"):
     
     class PDFWithFooter(FPDF):
         def footer(self):
@@ -37,19 +39,25 @@ def generate_pdf_report(df, benchmark, grade_dist, grade_by_class, overall_pie_p
     pdf.cell(0, 10, report_title, ln=True, align='C')
 
     # ----------------- Overall Grade Distribution Charts -----------------
-    pdf.set_font("Arial", 'B', 12)
+    pdf.set_font("Arial", 'B', 14)
     pdf.ln(3)
-    pdf.cell(0, 10, "Overall Grade Distribution (Bar Chart)", ln=True)
-    if os.path.exists(overall_bar_chart_path):
-        pdf.image(overall_bar_chart_path, w=170)
-
-    pdf.ln(4)
-    pdf.cell(0, 10, "Overall Grade Distribution (Pie Chart)", ln=True)
-    if os.path.exists(overall_pie_path):
-        pdf.image(overall_pie_path, w=170)
-
+    pdf.cell(0, 10, "Class-wise Grade Distribution", ln=2)
+    
+    # Add the bar chart
+    if os.path.exists(class_grade_bar_path):
+        pdf.set_font("Arial", 'I', 12)
+        pdf.cell(0, 8, "Visualization: Number of Students by Grade and Class", ln=1)
+        pdf.image(class_grade_bar_path, x=10, w=190)
+        pdf.ln(5)
+    
+    # Add the data table
+    if gender_bar_chart_path and os.path.exists(gender_bar_chart_path):
+        pdf.set_font("Arial", 'B', 14)
+        pdf.cell(0, 10, "Gender Distribution by Class", ln=2)
+        pdf.ln(5)
+        pdf.image(gender_bar_chart_path, w=180)
+    
     # ----------------- Class-wise Grade Distributions -----------------
-
     for class_name in class_bar_chart_paths.keys():
         # Start a new page for each class
         pdf.add_page()
@@ -99,7 +107,7 @@ with st.expander("📘 Instructions: Preparing Your Excel File", expanded=True):
     Please ensure your Excel or CSV file includes the following columns:
 
     - **Name**: Student's full name  
-    - **Gender**: e.g., Male(M) / Female(F) (Optional)
+    - **Gender**: e.g., M(Male) / F (Female)
     - **Class**: Class name or code
     - **Assessment**: Continuous Assessment percentage (%, numeric)
     - **Examination**: Examination percentage (%, numeric)
@@ -142,6 +150,8 @@ if uploaded_file:
     # Define flexible column matching
     ca_keywords = ["assessment", "ca", "ca_percent", "continuous_assessment", "ca_score"]
     exam_keywords = ["exam", "examination", "exam_percent", "final_exam", "exam_score"]
+    gender_keywords = ["gender", "sex", "male/female", "m/f"]
+   
     
     # Find relevant columns
     def find_column(df, keywords):
@@ -152,8 +162,9 @@ if uploaded_file:
     
     assessment_col = find_column(df, ca_keywords)
     examination_col = find_column(df, exam_keywords)
+    gender_col = find_column(df, gender_keywords)
 
-    # Handle missing columns with helpful error message
+    # Handle missing columns with error message
     if assessment_col is None or examination_col is None:
         error_msg = "Error: Required columns not found.\n\nLooking for:"
         if assessment_col is None:
@@ -163,6 +174,30 @@ if uploaded_file:
         error_msg += f"\n\nAvailable columns: {', '.join(df.columns)}"
         st.error(error_msg)
         st.stop()
+    
+    if gender_col:
+        df = df.rename(columns={gender_col: "Gender"})
+        # Convert to string and clean
+        df['Gender'] = df['Gender'].astype(str).str.strip().str.upper()
+        
+        # Map common variations to M/F
+        gender_mapping = {
+            'M': 'M', 'MALE': 'M', 'BOY': 'M',
+            'F': 'F', 'FEMALE': 'F', 'GIRL': 'F'
+        }
+        df['Gender'] = df['Gender'].map(gender_mapping).fillna(df['Gender'])
+        
+        # Take first character if not already M/F (e.g., "Male" → "M")
+        df['Gender'] = df['Gender'].str[0]
+        df['Gender'] = df['Gender'].where(df['Gender'].isin(['M', 'F']), None)
+        
+        
+        if not df['Gender'].isin(['M', 'F']).any():
+            st.warning("⚠️ Gender column found but contains no valid M/F data - gender analysis will be skipped")
+            gender_col = None
+    else:
+        st.warning("⚠️ Gender column not found - gender analysis will be skipped. Expected column names: 'Gender', 'Sex', 'M/F'")
+        gender_col = None
 
     # Rename columns for consistency
     df = df.rename(columns={
@@ -205,20 +240,152 @@ if uploaded_file:
     benchmark = numeric_overall.mean()
 
     # Show success message
-    st.success(f"Data loaded successfully! Found {len(df)} records. Benchmark: {benchmark:.1f}%")
+    st.success(f"Data loaded successfully! Found {len(df)} records.")
     
     # -----------------------
-    # Display Data
+    # Gender Distribution by Class (Tabbed View)
     # -----------------------
-    st.subheader("📌 Preview Data")
-    st.dataframe(df.head())
+    if 'Gender' in df.columns and df['Gender'].isin(['M', 'F']).any():
+        st.markdown("<hr style='border:1px solid lightgrey'>", unsafe_allow_html=True)
+        st.subheader("👥 Gender Distribution by Class")
+        
+        # Get gender counts per class
+        gender_by_class = df.groupby(['Class', 'Gender']).size().unstack(fill_value=0)
+        gender_by_class = gender_by_class.reindex(columns=['M', 'F'], fill_value=0)
+        
+        # Create tabs
+        tab1, tab2 = st.tabs(["📊 Bar Chart", "📋 Data Table"])
+        
+        with tab1:
+            # Grouped bar chart
+            fig, ax = plt.subplots(figsize=(10, 6))
+            
+            # Bar positions and width
+            classes = gender_by_class.index
+            x = np.arange(len(classes))
+            bar_width = 0.35
+            
+            # Plot bars
+            bars_m = ax.bar(x - bar_width/2, gender_by_class['M'], bar_width, 
+                        label='Male', color='lightblue')
+            bars_f = ax.bar(x + bar_width/2, gender_by_class['F'], bar_width, 
+                        label='Female', color='pink')
+            
+            # Customize chart
+            ax.set_xlabel('Class')
+            ax.set_ylabel('Number of Students')
+            ax.set_title('Gender Distribution by Class')
+            ax.set_xticks(x)
+            ax.set_xticklabels(classes, rotation=45)
+            ax.legend()
+            
+            # Add value labels
+            for bars in [bars_m, bars_f]:
+                for bar in bars:
+                    height = bar.get_height()
+                    ax.annotate(f'{height}',
+                                xy=(bar.get_x() + bar.get_width() / 2, height),
+                                xytext=(0, 3),
+                                textcoords="offset points",
+                                ha='center', va='bottom')
+            
+            st.pyplot(fig)
+            
+            # Save for PDF
+            gender_bar_chart_path = os.path.join(tempfile.gettempdir(), "gender_by_class_chart.png")
+            fig.savefig(gender_bar_chart_path, bbox_inches='tight', dpi=200)
+            plt.close(fig)
+        
+        with tab2:
+            # Data table with additional statistics
+            st.write("### Detailed Gender Counts by Class")
+            
+            # Calculate percentages
+            gender_table = gender_by_class.copy()
+            gender_table['Total'] = gender_table['M'] + gender_table['F']
+            gender_table['% Male'] = (gender_table['M'] / gender_table['Total'] * 100).round(1)
+            gender_table['% Female'] = (gender_table['F'] / gender_table['Total'] * 100).round(1)
+            
+            # Format table
+            styled_table = gender_table.style \
+                .format({'% Male': '{:.1f}%', '% Female': '{:.1f}%'}) \
+                .background_gradient(subset=['M', 'F'], cmap='Blues') \
+                .background_gradient(subset=['% Male', '% Female'], cmap='YlOrRd')
+            
+            st.dataframe(styled_table, use_container_width=True)
+            
+            # Save table as image for PDF
+            fig_table, ax_table = plt.subplots(figsize=(10, 4))
+            ax_table.axis('off')
+            table(ax_table, gender_table.round(1), loc='center', cellLoc='center')
+            gender_table_path = os.path.join(tempfile.gettempdir(), "gender_table.png")
+            fig_table.savefig(gender_table_path, bbox_inches='tight', dpi=200)
+            plt.close(fig_table)
+    else:
+        gender_bar_chart_path = None
+        gender_table_path = None
+        
     st.markdown("<hr style='border:1px solid lightgrey'>", unsafe_allow_html=True)
-
+    
     # -----------------------
     # Grade Distribution
     # -----------------------
     st.subheader("🎓 Grade Distribution")
     st.markdown("#### 🧮 Overall")
+    
+    grade_by_class = df.groupby(['Class', 'Grade']).size().unstack(fill_value=0)
+    grade_by_class = grade_by_class.reindex(columns=grade_order, fill_value=0)
+
+    # Create tabs for different views
+    tab1, tab2 = st.tabs(["📈 Bar Chart", "📋 Data Table"])
+
+    with tab1:
+        # Create the grouped bar chart using matplotlib
+        fig, ax = plt.subplots(figsize=(12, 6))
+        
+        # Set width and positions for the bars
+        n_classes = len(grade_by_class)
+        n_grades = len(grade_order)
+        bar_width = 0.8 / n_grades
+        index = np.arange(n_classes)
+        
+        # Create bars for each grade
+        for i, grade in enumerate(grade_order):
+            ax.bar(index + i * bar_width, 
+                grade_by_class[grade], 
+                width=bar_width,
+                label=grade,
+                color=plt.cm.tab20(i))  # Using a colormap for distinct colors
+        
+        # Customize the chart
+        ax.set_title('Number of Students by Grade and Class')
+        ax.set_ylabel('Number of Students')
+        ax.set_xlabel('Class')
+        ax.set_xticks(index + bar_width * (n_grades / 2 - 0.5))
+        ax.set_xticklabels(grade_by_class.index, rotation=45)
+        ax.legend(title='Grade', bbox_to_anchor=(1.05, 1), loc='upper left')
+        
+        plt.tight_layout()
+        st.pyplot(fig)
+        plt.close(fig)
+
+    with tab2:
+        # Display the raw data table
+        st.dataframe(grade_by_class.style.background_gradient(cmap='Blues'), 
+                    use_container_width=True)
+
+    # Save this chart for PDF report
+    class_grade_bar_path = os.path.join(tempfile.gettempdir(), "class_grade_bar_chart.png")
+    fig.savefig(class_grade_bar_path, bbox_inches='tight', dpi=300)
+
+    fig_table, ax_table = plt.subplots(figsize=(12, 4))
+    ax_table.axis('off')
+    table(ax_table, grade_by_class, loc='center', cellLoc='center')
+    class_grade_table_path = os.path.join(tempfile.gettempdir(), "class_grade_table.png")
+    fig_table.savefig(class_grade_table_path, bbox_inches='tight', dpi=300)
+    plt.close(fig_table)
+    
+    st.markdown("#### 📊 Total by Grade")
     grade_dist = df["Grade"].value_counts().reindex(grade_order).fillna(0).astype(int)
     col1, col2 = st.columns(2)
     with col1:
@@ -244,7 +411,7 @@ if uploaded_file:
     fig_overall_bar.savefig(overall_bar_chart_path, bbox_inches="tight", dpi=200)
     plt.close(fig_overall_bar)
 
-    st.markdown("#### 🏷️ By Class")
+    st.markdown("#### 🏷️ Grade By Class")
     classes = sorted(df["Class"].dropna().unique())
     
     # Initialize paths for PDF generation
@@ -337,9 +504,9 @@ if uploaded_file:
             
     st.markdown("<hr style='border:1px solid lightgrey'>", unsafe_allow_html=True)
 
-    # -----------------------
+    # --------------------------
     # Class Performance Summary
-    # -----------------------
+    # --------------------------
     st.subheader("🏫 Class Performance Summary")
     st.markdown("""
         <div style="background-color:#f0f2f6; padding:10px; border-radius:5px; margin-bottom:15px;">
@@ -373,9 +540,8 @@ if uploaded_file:
     st.pyplot(fig2)
     overall_pie_path = os.path.join(tempfile.gettempdir(), "overall_pie_chart.png")
     fig2.savefig(overall_pie_path, bbox_inches="tight")
-    plt.close(fig2)
+    plt.close(fig2) 
     
-
     # -----------------------
     # Sidebar Configuration
     # -----------------------
@@ -395,16 +561,20 @@ if uploaded_file:
         if st.button("📄 Generate PDF Report"):
             with st.spinner("Generating report..."):
                 report_path = generate_pdf_report(
-                df=df,
-                benchmark=benchmark,
-                grade_dist=grade_dist,
-                grade_by_class=df.groupby(['Class', 'Grade']).size().unstack(fill_value=0).reindex(columns=grade_order, fill_value=0),
-                overall_pie_path=overall_pie_path,
-                overall_bar_chart_path=overall_bar_chart_path,
-                class_bar_chart_paths=class_bar_chart_paths,
-                class_pie_chart_paths=class_pie_chart_paths,
-                report_title=pdf_title
-            )
+                    df=df,
+                    benchmark=benchmark,
+                    grade_dist=grade_dist,
+                    grade_by_class=grade_by_class,
+                    overall_pie_path=overall_pie_path,
+                    overall_bar_chart_path=overall_bar_chart_path,
+                    class_bar_chart_paths=class_bar_chart_paths,
+                    class_pie_chart_paths=class_pie_chart_paths,
+                    class_grade_bar_path=class_grade_bar_path,
+                    class_grade_table_path=class_grade_table_path,
+                    gender_bar_chart_graph=gender_bar_chart_path,
+                    gender_table_path=gender_table_path,
+                    report_title=pdf_title
+                )
             
             with open(report_path, "rb") as f:
                 st.download_button(

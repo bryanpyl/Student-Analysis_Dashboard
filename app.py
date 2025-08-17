@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-from sklearn.cluster import KMeans
 from fpdf import FPDF
 import tempfile
 import os
@@ -306,18 +305,88 @@ if uploaded_file:
             gender_table['% Male'] = (gender_table['M'] / gender_table['Total'] * 100).round(1)
             gender_table['% Female'] = (gender_table['F'] / gender_table['Total'] * 100).round(1)
             
-            # Format table
+            # Define pastel colors
+            pastel_blue = 'background-color: #ADD8E6'  # Light blue for male higher
+            pastel_pink = 'background-color: #FFB6C1'  # Light pink for female higher
+            white_bg = 'background-color: white'       # White for lower value
+            pastel_lavender = 'background-color: #E6E6FA'  # Lavender for equal values
+            
+            # Create a style DataFrame
+            def color_comparison(val, other_val, higher_style, lower_style):
+                if val > other_val:
+                    return higher_style
+                elif val < other_val:
+                    return lower_style
+                else:
+                    return pastel_lavender
+            
+            # Initialize style DataFrame with white background
+            style_df = pd.DataFrame(white_bg, index=gender_table.index, columns=gender_table.columns)
+            
+            # Apply colors to count columns (M and F)
+            for idx in gender_table.index:
+                m_val = gender_table.loc[idx, 'M']
+                f_val = gender_table.loc[idx, 'F']
+                
+                style_df.loc[idx, 'M'] = color_comparison(m_val, f_val, pastel_blue, white_bg)
+                style_df.loc[idx, 'F'] = color_comparison(f_val, m_val, pastel_pink, white_bg)
+                
+                # Apply colors to percentage columns (% Male and % Female)
+                m_pct = gender_table.loc[idx, '% Male']
+                f_pct = gender_table.loc[idx, '% Female']
+                
+                style_df.loc[idx, '% Male'] = color_comparison(m_pct, f_pct, pastel_blue, white_bg)
+                style_df.loc[idx, '% Female'] = color_comparison(f_pct, m_pct, pastel_pink, white_bg)
+            
+            # Create styled table
             styled_table = gender_table.style \
                 .format({'% Male': '{:.1f}%', '% Female': '{:.1f}%'}) \
-                .background_gradient(subset=['M', 'F'], cmap='Blues') \
-                .background_gradient(subset=['% Male', '% Female'], cmap='YlOrRd')
+                .apply(lambda x: style_df, axis=None)
             
             st.dataframe(styled_table, use_container_width=True)
             
             # Save table as image for PDF
             fig_table, ax_table = plt.subplots(figsize=(10, 4))
             ax_table.axis('off')
-            table(ax_table, gender_table.round(1), loc='center', cellLoc='center')
+            
+            # For matplotlib table, apply similar coloring
+            cell_colors = []
+            for _, row in gender_table.iterrows():
+                row_colors = []
+                for col in gender_table.columns:
+                    if col == 'M':
+                        if row['M'] > row['F']:
+                            row_colors.append(pastel_blue.split(': ')[1])
+                        elif row['M'] < row['F']:
+                            row_colors.append('white')
+                        else:
+                            row_colors.append(pastel_lavender.split(': ')[1])
+                    elif col == 'F':
+                        if row['F'] > row['M']:
+                            row_colors.append(pastel_pink.split(': ')[1])
+                        elif row['F'] < row['M']:
+                            row_colors.append('white')
+                        else:
+                            row_colors.append(pastel_lavender.split(': ')[1])
+                    elif col == '% Male':
+                        if row['% Male'] > row['% Female']:
+                            row_colors.append(pastel_blue.split(': ')[1])
+                        elif row['% Male'] < row['% Female']:
+                            row_colors.append('white')
+                        else:
+                            row_colors.append(pastel_lavender.split(': ')[1])
+                    elif col == '% Female':
+                        if row['% Female'] > row['% Male']:
+                            row_colors.append(pastel_pink.split(': ')[1])
+                        elif row['% Female'] < row['% Male']:
+                            row_colors.append('white')
+                        else:
+                            row_colors.append(pastel_lavender.split(': ')[1])
+                    else:
+                        row_colors.append('white')
+                cell_colors.append(row_colors)
+            
+            table(ax_table, gender_table.round(1), loc='center', cellLoc='center', cellColours=cell_colors)
             gender_table_path = os.path.join(tempfile.gettempdir(), "gender_table.png")
             fig_table.savefig(gender_table_path, bbox_inches='tight', dpi=200)
             plt.close(fig_table)
@@ -424,14 +493,44 @@ if uploaded_file:
         total_class_students = class_grade_dist.sum()
         
         with st.expander(f"📘 Class: {class_name}", expanded=False):
-            # Create two columns - one for data, one for charts
-            col1, col2 = st.columns([1, 2])
+            # Adjust column ratios to better accommodate the wider table
+            col1, col2 = st.columns([1.3, 2])  # Increased first column width
             
             with col1:
-                st.dataframe(class_grade_dist.rename("Count"))
+                # Create DataFrame
+                display_df = pd.DataFrame({
+                    'Grade': class_grade_dist.index,
+                    'Count': class_grade_dist.values,
+                    '%': (class_grade_dist.values / total_class_students * 100).round(1)
+                }).set_index('Grade')
+
+                # Get unique sorted percentages to find 2nd lowest
+                sorted_percentages = np.sort(display_df['%'].unique())
+                
+                # Define masks for min, 2nd min, and max
+                min_mask = display_df['%'] == sorted_percentages[0]  # Lowest
+                second_min_mask = display_df['%'] == sorted_percentages[1] if len(sorted_percentages) > 1 else pd.Series(False, index=display_df.index)  # 2nd lowest
+                max_mask = display_df['%'] == sorted_percentages[-1]  # Highest
+
+                # Apply styling
+                styled_df = (
+                    display_df.style
+                    .format({'%': '{:.1f}%'})
+                    # Alternate row colors (light gray/white)
+                    .set_properties(**{'background-color': '#f9f9f9'}, subset=pd.IndexSlice[::2, :])
+                    # Highlight min (pastel red)
+                    .set_properties(**{'background-color': '#ffcccc'}, subset=pd.IndexSlice[min_mask, :])
+                    # Highlight 2nd min (pastel yellow)
+                    .set_properties(**{'background-color': '#fff2cc'}, subset=pd.IndexSlice[second_min_mask, :])
+                    # Highlight max (pastel green)
+                    .set_properties(**{'background-color': '#ccffcc'}, subset=pd.IndexSlice[max_mask, :])
+                )
+
+                st.table(styled_df)
+
             
             with col2:
-                # Create tabs for different chart types
+                # Rest of your chart code remains the same
                 tab1, tab2 = st.tabs(["📊 Bar Chart", "🥧 Pie Chart"])
                 
                 with tab1:
@@ -439,24 +538,16 @@ if uploaded_file:
                 
                 with tab2:
                     if total_class_students > 0:
-                        fig_pie, ax_pie = plt.subplots(figsize=(4, 3))  # Match bar chart size
-                        
+                        fig_pie, ax_pie = plt.subplots(figsize=(3, 2.2))
                         pie_data = class_grade_dist[class_grade_dist > 0]
                         pie_labels = [f"{g} ({c})" for g, c in zip(pie_data.index, pie_data)]
-                        
-                        # Adjust these parameters to fit well in the same size figure
                         ax_pie.pie(pie_data, 
                                 labels=pie_labels,
                                 autopct='%1.1f%%',
                                 startangle=140,
-                                textprops={'fontsize': 8})  # Adjust label positioning
-                        
-                        # Make title match bar chart style
+                                textprops={'fontsize': 8})
                         ax_pie.set_title(f"Grade Distribution - {class_name}", fontsize=10)
-                        
-                        # Use tight_layout to optimize space
                         plt.tight_layout()
-                        
                         st.pyplot(fig_pie)
                         plt.close(fig_pie)
                     else:

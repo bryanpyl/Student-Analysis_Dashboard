@@ -1,3 +1,6 @@
+# =======================
+# Imports & Config
+# =======================
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -14,9 +17,9 @@ plt.switch_backend('Agg')
 st.set_page_config(page_title="Student Performance Dashboard", layout="wide")
 st.title("📊 Student Performance Dashboard")
 
-# -----------------------
+# =======================
 # PDF Generation Function
-# -----------------------
+# =======================
 def generate_pdf_report(df, benchmark, grade_dist, grade_by_class, overall_pie_path, 
                        overall_bar_chart_path, class_bar_chart_paths, class_pie_chart_paths, 
                        class_grade_bar_path, class_grade_table_path,
@@ -33,7 +36,7 @@ def generate_pdf_report(df, benchmark, grade_dist, grade_by_class, overall_pie_p
     pdf.add_page()
     pdf.alias_nb_pages()  # Enable page numbering
 
-    # Now add the title
+    # Report Title
     pdf.set_font("Arial", 'B', 16)
     pdf.cell(0, 10, report_title, ln=True, align='C')
 
@@ -49,7 +52,7 @@ def generate_pdf_report(df, benchmark, grade_dist, grade_by_class, overall_pie_p
         pdf.image(class_grade_bar_path, x=10, w=190)
         pdf.ln(5)
     
-    # Add the data table
+    # Add gender distribution chart
     if gender_bar_chart_path and os.path.exists(gender_bar_chart_path):
         pdf.set_font("Arial", 'B', 14)
         pdf.cell(0, 10, "Gender Distribution by Class", ln=2)
@@ -58,49 +61,35 @@ def generate_pdf_report(df, benchmark, grade_dist, grade_by_class, overall_pie_p
     
     # ----------------- Class-wise Grade Distributions -----------------
     for class_name in class_bar_chart_paths.keys():
-        # Start a new page for each class
         pdf.add_page()
-        
-        # Class title
         pdf.set_font("Arial", "B", 12)
         pdf.cell(0, 10, f"Class: {class_name}", ln=True)
-        pdf.ln(4)  # Small space after title
+        pdf.ln(4)
+
+        page_width = pdf.w - 2*pdf.l_margin
+        chart_width = page_width
+        chart_height = 120
         
-        # Calculate positions - we'll place charts vertically with full width
-        page_width = pdf.w - 2*pdf.l_margin  # Available width
-        chart_width = page_width  # Full width for each chart
-        chart_height = 120  # Height in mm (adjust as needed)
-        
-        # Add bar chart (top)
+        # Add bar chart
         if os.path.exists(class_bar_chart_paths[class_name]):
             pdf.image(class_bar_chart_paths[class_name], 
-                    x=pdf.l_margin, 
-                    y=None,  # Let FPDF determine Y position
-                    w=chart_width,
-                    h=chart_height)
-        
-        # Add some space between charts
+                      x=pdf.l_margin, w=chart_width, h=chart_height)
         pdf.ln(10)
         
-        # Add pie chart (bottom) if it exists
+        # Add pie chart
         if class_name in class_pie_chart_paths and os.path.exists(class_pie_chart_paths[class_name]):
             pdf.image(class_pie_chart_paths[class_name], 
-                    x=pdf.l_margin, 
-                    y=None,  # Let FPDF determine Y position
-                    w=chart_width,
-                    h=chart_height)
-        
-        # Add some space after the charts
+                      x=pdf.l_margin, w=chart_width, h=chart_height)
         pdf.ln(10)
 
-    # ----------------- Save PDF -----------------
+    # Save PDF
     pdf_path = os.path.join(tempfile.gettempdir(), "student_report.pdf")
     pdf.output(pdf_path)
     return pdf_path
 
-# -----------------------
+# =======================
 # Instructions Section
-# -----------------------
+# =======================
 with st.expander("📘 Instructions: Preparing Your Excel File", expanded=True):
     st.markdown("""
     Please ensure your Excel or CSV file includes the following columns:
@@ -111,7 +100,7 @@ with st.expander("📘 Instructions: Preparing Your Excel File", expanded=True):
     - **Assessment**: Continuous Assessment percentage (%, numeric)
     - **Examination**: Examination percentage (%, numeric)
     - **Total**: Total marks between Assessment and Examination (%, numeric)
-    - **Grade**: Student's grade (A*, A, B, C, D, E.......)  
+    - **Grade**: Student's grade (A*, A, B, C, D, E, U, ABS)  
 
     **Example Column Headers**:
     ```
@@ -121,16 +110,16 @@ with st.expander("📘 Instructions: Preparing Your Excel File", expanded=True):
     **Note**:
     - The column names are **case-insensitive**, but ensure they follow the exact format.
     - Avoid extra spaces in headers or leave cells empty.
-    - 'ABS' will be treated as **absent** and excluded from numerical computations.
+    - 'ABS' will be treated as **Absent** and excluded from numerical computations.
     """)
 
-# -----------------------
-# File Upload
-# -----------------------
+# ================================
+# File Upload & Preprocessing
+# ================================
 uploaded_file = st.file_uploader("📁 Upload the student CSV or Excel file", type=["csv", "xlsx", "xls"])
 
 if uploaded_file:
-    # Read the file
+    # --- File Reading ---
     if uploaded_file.name.endswith('.csv'):
         df = pd.read_csv(uploaded_file)
     else:
@@ -142,28 +131,24 @@ if uploaded_file:
                 sheet_df["Class"] = sheet_name
             dataframes.append(sheet_df)
         df = pd.concat(dataframes, ignore_index=True)
-
-    # Standardize column names
     df.columns = df.columns.str.strip().str.replace(" ", "_")
-    
-    # Define flexible column matching
-    ca_keywords = ["assessment", "ca", "ca_percent", "continuous_assessment", "ca_score"]
-    exam_keywords = ["exam", "examination", "exam_percent", "final_exam", "exam_score"]
-    gender_keywords = ["gender", "sex", "male/female", "m/f"]
-   
-    
-    # Find relevant columns
+
+    # --- Flexible Column Matching ---
     def find_column(df, keywords):
         for col in df.columns:
             if any(keyword in col.lower() for keyword in keywords):
                 return col
         return None
     
+    ca_keywords = ["ca_percent", "assessment", "continuous_assessment", "ca_score"]
+    exam_keywords = ["exam_percent", "examination", "final_exam", "exam_score"]
+    gender_keywords = ["gender", "sex", "male/female", "m/f"]
+
     assessment_col = find_column(df, ca_keywords)
     examination_col = find_column(df, exam_keywords)
     gender_col = find_column(df, gender_keywords)
 
-    # Handle missing columns with error message
+    # --- Error Handling for Missing Columns ---
     if assessment_col is None or examination_col is None:
         error_msg = "Error: Required columns not found.\n\nLooking for:"
         if assessment_col is None:
@@ -173,7 +158,8 @@ if uploaded_file:
         error_msg += f"\n\nAvailable columns: {', '.join(df.columns)}"
         st.error(error_msg)
         st.stop()
-    
+
+    # --- Gender Processing ---
     if gender_col:
         df = df.rename(columns={gender_col: "Gender"})
         # Convert to string and clean
@@ -198,20 +184,14 @@ if uploaded_file:
         st.warning("⚠️ Gender column not found - gender analysis will be skipped. Expected column names: 'Gender', 'Sex', 'M/F'")
         gender_col = None
 
-    # Rename columns for consistency
-    df = df.rename(columns={
-        assessment_col: "CA_Percent",
-        examination_col: "Exam_Percent"
-    })
-    
-    # Convert to numeric with error handling
+    # --- Rename Columns ---
+    df = df.rename(columns={assessment_col: "CA_Percent", examination_col: "Exam_Percent"})
     df["CA_Percent"] = pd.to_numeric(df["CA_Percent"], errors="coerce")
     df["Exam_Percent"] = pd.to_numeric(df["Exam_Percent"], errors="coerce")
-    
-    # Process Overall column
+
+    # --- Overall Score ---
     total_keywords = ["total", "overall", "final_score", "combined"]
     total_col = find_column(df, total_keywords)
-    
     if total_col:
         df["Overall"] = df[total_col].apply(
             lambda x: "ABS" if str(x).strip().upper() == "ABS" 
@@ -222,10 +202,9 @@ if uploaded_file:
         df["Overall"] = df["CA_Percent"] + df["Exam_Percent"]
         st.warning("No total/overall column found - calculated sum of CA and Exam scores")
 
-    # Process Grade column if it exists
+    # --- Grade Column ---
     grade_keywords = ["grade", "letter_grade", "final_grade"]
     grade_col = find_column(df, grade_keywords)
-    
     if grade_col:
         df["Grade"] = df[grade_col].str.strip().str.upper()
         grade_order = ["A*", "A", "B", "C", "D", "E", "U", "ABS"]
@@ -234,16 +213,14 @@ if uploaded_file:
         df["Grade"] = np.nan
         st.warning("No grade column found - you may want to calculate grades")
 
-    # Calculate benchmark
+    # --- Benchmark ---
     numeric_overall = pd.to_numeric(df["Overall"], errors="coerce")
     benchmark = numeric_overall.mean()
-
-    # Show success message
     st.success(f"Data loaded successfully! Found {len(df)} records.")
-    
-    # -----------------------
-    # Gender Distribution by Class (Tabbed View)
-    # -----------------------
+
+    # ================================
+    # Gender Distribution by Class
+    # ================================
     if 'Gender' in df.columns and df['Gender'].isin(['M', 'F']).any():
         st.markdown("<hr style='border:1px solid lightgrey'>", unsafe_allow_html=True)
         st.subheader("👥 Gender Distribution by Class")
@@ -395,10 +372,11 @@ if uploaded_file:
         gender_table_path = None
         
     st.markdown("<hr style='border:1px solid lightgrey'>", unsafe_allow_html=True)
-    
-    # -----------------------
+
+
+    # =======================
     # Grade Distribution
-    # -----------------------
+    # =======================
     st.subheader("🎓 Grade Distribution")
     st.markdown("#### 🧮 Overall")
     
@@ -595,9 +573,9 @@ if uploaded_file:
             
     st.markdown("<hr style='border:1px solid lightgrey'>", unsafe_allow_html=True)
 
-    # --------------------------
+    # =========================
     # Class Performance Summary
-    # --------------------------
+    # =========================
     st.subheader("🏫 Class Performance Summary")
     st.markdown("""
         <div style="background-color:#f0f2f6; padding:10px; border-radius:5px; margin-bottom:15px;">
@@ -617,9 +595,9 @@ if uploaded_file:
 
     st.markdown("<hr style='border:1px solid lightgrey'>", unsafe_allow_html=True)
 
-    # -----------------------
-    # Pie Chart
-    # -----------------------
+    # =======================
+    # Overall Pie Chart
+    # =======================
     st.subheader("📉  Overall Grade Distribution (Pie Chart)")
     overall_grade_dist = df["Grade"].value_counts().reindex(grade_order).fillna(0)
     total_students = overall_grade_dist.sum()
@@ -631,25 +609,26 @@ if uploaded_file:
     st.pyplot(fig2)
     overall_pie_path = os.path.join(tempfile.gettempdir(), "overall_pie_chart.png")
     fig2.savefig(overall_pie_path, bbox_inches="tight")
-    plt.close(fig2) 
+    plt.close(fig2)
     
-    # -----------------------
-    # Sidebar Configuration
-    # -----------------------
-    with st.sidebar:
-        st.header("Export Options")
-        
-        # PDF Report Options
-        pdf_title = st.text_input("PDF Report Title", "Student Performance Report")
-        pdf_filename = st.text_input("PDF Filename (without .pdf)", "student_performance_report")
-        
-        # CSV Export Options
-        csv_filename = st.text_input("CSV Filename (without .csv)", "student_analysis_results")
-        
-        st.markdown("---")
-        
-        # PDF Report Button
-        if st.button("📄 Generate PDF Report"):
+# =========================
+# Sidebar (Export Options)
+# =========================
+with st.sidebar:
+    st.header("Export Options")
+
+    # --- Inputs (always available) ---
+    pdf_title = st.text_input("PDF Report Title", "Student Performance Report")
+    pdf_filename = st.text_input("PDF Filename (without .pdf)", "student_performance_report")
+    csv_filename = st.text_input("CSV Filename (without .csv)", "student_analysis_results")
+
+    st.markdown("---")
+
+    # --- Export Buttons ---
+    if "df" in locals():
+        # Enable buttons once data is loaded
+        pdf_button = st.button("📄 Generate PDF Report", use_container_width=True)
+        if pdf_button:
             with st.spinner("Generating report..."):
                 report_path = generate_pdf_report(
                     df=df,
@@ -672,13 +651,40 @@ if uploaded_file:
                     "📥 Download PDF Report", 
                     data=f, 
                     file_name=f"{pdf_filename}.pdf", 
-                    mime="application/pdf"
+                    mime="application/pdf",
+                    use_container_width=True
                 )
-        
-        # CSV Export Button
+
         st.download_button(
             "📥 Download Analyzed CSV", 
             data=df.to_csv(index=False), 
             file_name=f"{csv_filename}.csv", 
-            mime="text/csv"
+            mime="text/csv",
+            use_container_width=True
         )
+    else:
+        # Greyed-out style for disabled buttons
+        st.markdown(
+            """
+            <style>
+            .stButton>button[disabled], .stDownloadButton>button[disabled] {
+                background-color: #e0e0e0 !important;
+                color: #888 !important;
+                cursor: not-allowed !important;
+                border: 1px solid #ccc !important;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
+
+        st.button("📄 Generate PDF Report", disabled=True, use_container_width=True)
+        st.download_button(
+            "📥 Download Analyzed CSV", 
+            data="", 
+            file_name=f"{csv_filename}.csv", 
+            mime="text/csv",
+            disabled=True,
+            use_container_width=True
+        )
+        st.info("📂 Upload an Excel file to enable exports.")

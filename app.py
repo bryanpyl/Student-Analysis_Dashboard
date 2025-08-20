@@ -123,12 +123,10 @@ def extract_sheet_id_from_url(url):
         r'https://docs\.google\.com/spreadsheets/d/([a-zA-Z0-9-_]+)/edit',
         r'https://docs\.google\.com/spreadsheets/d/([a-zA-Z0-9-_]+)/.*'
     ]
-    
     for pattern in patterns:
         match = re.search(pattern, url)
         if match:
             return match.group(1)
-    
     return None
 
 def load_google_sheet(url):

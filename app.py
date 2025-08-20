@@ -708,7 +708,8 @@ if df is not None and not df.empty:
     plt.close(fig2)
 else:
     # Show a message if no data is loaded yet
-    st.info("Please upload a file or provide a Google Sheets URL to begin analysis.")    
+    st.info("Please upload a file or provide a Google Sheets URL to begin analysis.")   
+     
 # =========================
 # Sidebar (Export Options)
 # =========================

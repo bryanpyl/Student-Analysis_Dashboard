@@ -96,37 +96,37 @@ def generate_pdf_report(df, benchmark, grade_dist, grade_by_class, overall_pie_p
 def authenticate_google_sheets():
     """Authenticate with Google Sheets API using Streamlit secrets"""
     try:
-        # Create the credentials object
         scopes = [
             'https://www.googleapis.com/auth/spreadsheets',
             'https://www.googleapis.com/auth/drive'
         ]
         
-        # Check if secrets are available (for Streamlit Cloud)
-        if 'gcp_service_account' in st.secrets:
-            creds_dict = dict(st.secrets['gcp_service_account'])
+        # Method 1: Single JSON string from secrets
+        if 'GSHEET_CREDENTIALS_JSON' in st.secrets:
+            import json
+            creds_dict = json.loads(st.secrets['GSHEET_CREDENTIALS_JSON'])
             credentials = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         
-        # Fallback: check for environment variables (for local development)
-        elif all(key in os.environ for key in ['GSHEET_TYPE', 'GSHEET_PROJECT_ID', 'GSHEET_PRIVATE_KEY']):
+        # Method 2: Individual fields from secrets
+        elif 'gcp_service_account' in st.secrets:
             creds_dict = {
-                "type": os.environ.get("GSHEET_TYPE"),
-                "project_id": os.environ.get("GSHEET_PROJECT_ID"),
-                "private_key_id": os.environ.get("GSHEET_PRIVATE_KEY_ID"),
-                "private_key": os.environ.get("GSHEET_PRIVATE_KEY").replace('\\n', '\n'),
-                "client_email": os.environ.get("GSHEET_CLIENT_EMAIL"),
-                "client_id": os.environ.get("GSHEET_CLIENT_ID"),
-                "auth_uri": os.environ.get("GSHEET_AUTH_URI", "https://accounts.google.com/o/oauth2/auth"),
-                "token_uri": os.environ.get("GSHEET_TOKEN_URI", "https://oauth2.googleapis.com/token")
+                "type": st.secrets['gcp_service_account']['type'],
+                "project_id": st.secrets['gcp_service_account']['project_id'],
+                "private_key_id": st.secrets['gcp_service_account']['private_key_id'],
+                "private_key": st.secrets['gcp_service_account']['private_key'].replace('\\n', '\n'),
+                "client_email": st.secrets['gcp_service_account']['client_email'],
+                "client_id": st.secrets['gcp_service_account']['client_id'],
+                "auth_uri": st.secrets['gcp_service_account'].get('auth_uri', 'https://accounts.google.com/o/oauth2/auth'),
+                "token_uri": st.secrets['gcp_service_account'].get('token_uri', 'https://oauth2.googleapis.com/token')
             }
             credentials = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         
-        # Fallback: check for JSON file (legacy support)
+        # Method 3: Local JSON file (for development)
         elif os.path.exists("google_credentials.json"):
             credentials = Credentials.from_service_account_file("google_credentials.json", scopes=scopes)
         
         else:
-            st.error("Google Sheets credentials not found. Please configure secrets in Streamlit Cloud or set environment variables.")
+            st.error("Google Sheets credentials not found.")
             return None
             
         gc = gspread.authorize(credentials)

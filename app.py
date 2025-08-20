@@ -8,6 +8,8 @@ from fpdf import FPDF
 import tempfile
 import os
 import numpy as np
+import time
+from datetime import datetime, timezone
 from PIL import Image
 from pandas.plotting import table
 import gspread
@@ -101,39 +103,73 @@ def authenticate_google_sheets():
             'https://www.googleapis.com/auth/drive'
         ]
         
-        # Method 1: Single JSON string from secrets
+        # Check time synchronization
+        current_time = datetime.now(timezone.utc)
+        st.sidebar.info(f"System time: {current_time.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+        
+        # Method 1: Single JSON string from secrets (most common)
         if 'GSHEET_CREDENTIALS_JSON' in st.secrets:
             import json
             creds_dict = json.loads(st.secrets['GSHEET_CREDENTIALS_JSON'])
+            
+            # Fix private key formatting
+            if 'private_key' in creds_dict:
+                creds_dict['private_key'] = creds_dict['private_key'].replace('\\n', '\n')
+            
             credentials = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         
         # Method 2: Individual fields from secrets
         elif 'gcp_service_account' in st.secrets:
+            service_account = st.secrets['gcp_service_account']
             creds_dict = {
-                "type": st.secrets['gcp_service_account']['type'],
-                "project_id": st.secrets['gcp_service_account']['project_id'],
-                "private_key_id": st.secrets['gcp_service_account']['private_key_id'],
-                "private_key": st.secrets['gcp_service_account']['private_key'].replace('\\n', '\n'),
-                "client_email": st.secrets['gcp_service_account']['client_email'],
-                "client_id": st.secrets['gcp_service_account']['client_id'],
-                "auth_uri": st.secrets['gcp_service_account'].get('auth_uri', 'https://accounts.google.com/o/oauth2/auth'),
-                "token_uri": st.secrets['gcp_service_account'].get('token_uri', 'https://oauth2.googleapis.com/token')
+                "type": service_account['type'],
+                "project_id": service_account['project_id'],
+                "private_key_id": service_account['private_key_id'],
+                "private_key": service_account['private_key'].replace('\\n', '\n'),
+                "client_email": service_account['client_email'],
+                "client_id": service_account['client_id'],
+                "auth_uri": service_account.get('auth_uri', 'https://accounts.google.com/o/oauth2/auth'),
+                "token_uri": service_account.get('token_uri', 'https://oauth2.googleapis.com/token')
             }
             credentials = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         
         # Method 3: Local JSON file (for development)
         elif os.path.exists("google_credentials.json"):
-            credentials = Credentials.from_service_account_file("google_credentials.json", scopes=scopes)
+            with open("google_credentials.json", "r") as f:
+                creds_content = f.read()
+                # Fix newlines if needed
+                creds_content = creds_content.replace('\\n', '\n')
+            
+            # Write fixed content to temporary file
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as temp_file:
+                temp_file.write(creds_content)
+                temp_cred_path = temp_file.name
+            
+            credentials = Credentials.from_service_account_file(temp_cred_path, scopes=scopes)
+            
+            # Clean up temporary file
+            os.unlink(temp_cred_path)
         
         else:
-            st.error("Google Sheets credentials not found.")
+            st.error("Google Sheets credentials not found in secrets or local file.")
+            st.info("Please add credentials to Streamlit secrets or upload a google_credentials.json file")
+            return None
+        
+        # Test the credentials
+        try:
+            gc = gspread.authorize(credentials)
+            # Simple test to verify credentials work
+            test_sheet = gc.open_by_key("test")  # This will fail but test auth
+        except gspread.SpreadsheetNotFound:
+            # Expected error - credentials worked but sheet doesn't exist
+            return gc
+        except Exception as auth_error:
+            st.error(f"Credential test failed: {str(auth_error)}")
             return None
             
-        gc = gspread.authorize(credentials)
-        return gc
-        
     except Exception as e:
         st.error(f"Failed to authenticate with Google Sheets: {str(e)}")
+        st.info("Please check your service account credentials format")
         return None
 
 def extract_sheet_id_from_url(url):

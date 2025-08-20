@@ -101,13 +101,11 @@ def authenticate_google_sheets():
             'https://www.googleapis.com/auth/spreadsheets',
             'https://www.googleapis.com/auth/drive'
         ]
-        
         # Check if the JSON file exists
         creds_file = "google_credentials.json"
         if not os.path.exists(creds_file):
             st.error("Google credentials file not found. Please ensure 'google_credentials.json' is in the same directory.")
             return None
-            
         credentials = Credentials.from_service_account_file(creds_file, scopes=scopes)
         gc = gspread.authorize(credentials)
         return gc

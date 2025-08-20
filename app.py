@@ -133,7 +133,6 @@ def load_google_sheet(url):
         gc = authenticate_google_sheets()
         if not gc:
             return None
-            
         sheet_id = extract_sheet_id_from_url(url)
         if not sheet_id:
             st.error("Invalid Google Sheets URL. Please provide a valid URL.")

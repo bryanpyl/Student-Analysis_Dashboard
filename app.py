@@ -10,6 +10,9 @@ import os
 import numpy as np
 from PIL import Image
 from pandas.plotting import table
+import gspread
+from google.oauth2.service_account import Credentials
+import re
 
 # Set matplotlib to not use interactive backend to prevent memory issues
 plt.switch_backend('Agg')
@@ -88,6 +91,78 @@ def generate_pdf_report(df, benchmark, grade_dist, grade_by_class, overall_pie_p
     return pdf_path
 
 # =======================
+# Google Sheets Functions
+# =======================
+def authenticate_google_sheets():
+    """Authenticate with Google Sheets API using service account credentials"""
+    try:
+        # Create the credentials object
+        scopes = [
+            'https://www.googleapis.com/auth/spreadsheets',
+            'https://www.googleapis.com/auth/drive'
+        ]
+        
+        # Check if the JSON file exists
+        creds_file = "google_credentials.json"
+        if not os.path.exists(creds_file):
+            st.error("Google credentials file not found. Please ensure 'google_credentials.json' is in the same directory.")
+            return None
+            
+        credentials = Credentials.from_service_account_file(creds_file, scopes=scopes)
+        gc = gspread.authorize(credentials)
+        return gc
+    except Exception as e:
+        st.error(f"Failed to authenticate with Google Sheets: {str(e)}")
+        return None
+
+def extract_sheet_id_from_url(url):
+    """Extract the Google Sheet ID from a URL"""
+    # Pattern to match Google Sheet URLs
+    patterns = [
+        r'https://docs\.google\.com/spreadsheets/d/([a-zA-Z0-9-_]+)',
+        r'https://docs\.google\.com/spreadsheets/d/([a-zA-Z0-9-_]+)/edit',
+        r'https://docs\.google\.com/spreadsheets/d/([a-zA-Z0-9-_]+)/.*'
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
+    
+    return None
+
+def load_google_sheet(url):
+    """Load data from a Google Sheet - always loads all worksheets"""
+    try:
+        gc = authenticate_google_sheets()
+        if not gc:
+            return None
+            
+        sheet_id = extract_sheet_id_from_url(url)
+        if not sheet_id:
+            st.error("Invalid Google Sheets URL. Please provide a valid URL.")
+            return None
+            
+        # Open the spreadsheet
+        spreadsheet = gc.open_by_key(sheet_id)
+        
+        # Get all worksheets and combine them
+        worksheets = spreadsheet.worksheets()
+        dataframes = []
+        
+        for worksheet in worksheets:
+            df = pd.DataFrame(worksheet.get_all_records())
+            if "Class" not in df.columns:
+                df["Class"] = worksheet.title
+            dataframes.append(df)
+        
+        return pd.concat(dataframes, ignore_index=True)
+            
+    except Exception as e:
+        st.error(f"Error loading Google Sheet: {str(e)}")
+        return None
+
+# =======================
 # Instructions Section
 # =======================
 with st.expander("📘 Instructions: Preparing Your Excel File", expanded=True):
@@ -116,23 +191,43 @@ with st.expander("📘 Instructions: Preparing Your Excel File", expanded=True):
 # ================================
 # File Upload & Preprocessing
 # ================================
-uploaded_file = st.file_uploader("📁 Upload the student CSV or Excel file", type=["csv", "xlsx", "xls"])
+input_method = st.radio(
+    "Select input method:",
+    ["Upload File", "Google Sheets URL"],
+    horizontal=True
+)
 
-if uploaded_file:
-    # --- File Reading ---
-    if uploaded_file.name.endswith('.csv'):
-        df = pd.read_csv(uploaded_file)
-    else:
-        all_sheets = pd.read_excel(uploaded_file, sheet_name=None)
-        dataframes = []
-        for sheet_name, sheet_df in all_sheets.items():
-            sheet_df.columns = sheet_df.columns.str.strip().str.replace(" ", "_")
-            if "Class" not in sheet_df.columns:
-                sheet_df["Class"] = sheet_name
-            dataframes.append(sheet_df)
-        df = pd.concat(dataframes, ignore_index=True)
+df = None
+
+if input_method == "Upload File":
+    uploaded_file = st.file_uploader("📁 Upload the student CSV or Excel file", type=["csv", "xlsx", "xls"])
+    
+    if uploaded_file:
+        # --- File Reading ---
+        if uploaded_file.name.endswith('.csv'):
+            df = pd.read_csv(uploaded_file)
+        else:
+            all_sheets = pd.read_excel(uploaded_file, sheet_name=None)
+            dataframes = []
+            for sheet_name, sheet_df in all_sheets.items():
+                sheet_df.columns = sheet_df.columns.str.strip().str.replace(" ", "_")
+                if "Class" not in sheet_df.columns:
+                    sheet_df["Class"] = sheet_name
+                dataframes.append(sheet_df)
+            df = pd.concat(dataframes, ignore_index=True)
+        
+else:  # Google Sheets URL
+    sheets_url = st.text_input("🔗 Google Sheets URL", placeholder="https://docs.google.com/spreadsheets/d/...")
+    
+    if sheets_url:
+        with st.spinner("Loading data from Google Sheets..."):
+            df = load_google_sheet(sheets_url)
+
+# Only process data if df is not None
+if df is not None and not df.empty:
+    # Process the data
     df.columns = df.columns.str.strip().str.replace(" ", "_")
-
+    
     # --- Flexible Column Matching ---
     def find_column(df, keywords):
         for col in df.columns:
@@ -140,6 +235,7 @@ if uploaded_file:
                 return col
         return None
     
+    # The rest of your data processing code...
     ca_keywords = ["ca_percent", "assessment", "continuous_assessment", "ca_score"]
     exam_keywords = ["exam_percent", "examination", "final_exam", "exam_score"]
     gender_keywords = ["gender", "sex", "male/female", "m/f"]
@@ -610,7 +706,9 @@ if uploaded_file:
     overall_pie_path = os.path.join(tempfile.gettempdir(), "overall_pie_chart.png")
     fig2.savefig(overall_pie_path, bbox_inches="tight")
     plt.close(fig2)
-    
+else:
+    # Show a message if no data is loaded yet
+    st.info("Please upload a file or provide a Google Sheets URL to begin analysis.")    
 # =========================
 # Sidebar (Export Options)
 # =========================
@@ -625,7 +723,10 @@ with st.sidebar:
     st.markdown("---")
 
     # --- Export Buttons ---
-    if "df" in locals():
+    # Check if df exists and is not None
+    df_exists = "df" in locals() and df is not None
+    
+    if df_exists:
         # Enable buttons once data is loaded
         pdf_button = st.button("📄 Generate PDF Report", use_container_width=True)
         if pdf_button:
@@ -655,12 +756,15 @@ with st.sidebar:
                     use_container_width=True
                 )
 
+        # CSV download button
+        csv_data = df.to_csv(index=False) if df_exists else ""
         st.download_button(
             "📥 Download Analyzed CSV", 
-            data=df.to_csv(index=False), 
+            data=csv_data, 
             file_name=f"{csv_filename}.csv", 
             mime="text/csv",
-            use_container_width=True
+            use_container_width=True,
+            disabled=not df_exists
         )
     else:
         # Greyed-out style for disabled buttons
@@ -687,4 +791,4 @@ with st.sidebar:
             disabled=True,
             use_container_width=True
         )
-        st.info("📂 Upload an Excel file to enable exports.")
+        st.info("📂 Upload a file or provide a Google Sheets URL to enable exports.")

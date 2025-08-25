@@ -103,10 +103,6 @@ def authenticate_google_sheets():
             'https://www.googleapis.com/auth/drive'
         ]
         
-        # Check time synchronization
-        current_time = datetime.now(timezone.utc)
-        st.sidebar.info(f"System time: {current_time.strftime('%Y-%m-%d %H:%M:%S UTC')}")
-        
         # Method 1: Single JSON string from secrets (most common)
         if 'GSHEET_CREDENTIALS_JSON' in st.secrets:
             import json

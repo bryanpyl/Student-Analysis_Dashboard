@@ -28,7 +28,7 @@ st.title("📊 Student Performance Dashboard")
 def generate_pdf_report(df, benchmark, grade_dist, grade_by_class, overall_pie_path, 
                        overall_bar_chart_path, class_bar_chart_paths, class_pie_chart_paths, 
                        class_grade_bar_path, class_grade_table_path,
-                       gender_bar_chart_graph, gender_table_path=None, report_title="Student Performance Report"):
+                       gender_bar_chart_path, gender_table_path=None, report_title="Student Performance Report"):
     
     class PDFWithFooter(FPDF):
         def footer(self):
@@ -217,6 +217,29 @@ def load_google_sheet(url):
         return None
 
 # =======================
+# Helper Functions
+# =======================
+def extract_year_level(class_name):
+    """Extract year level from class name (e.g., 9A -> 9, Year10B -> 10)"""
+    if not isinstance(class_name, str):
+        return "Unknown"
+    
+    # Look for patterns like "9A", "Year10B", "Form3C", etc.
+    patterns = [
+        r'^(\d+)',  # Starts with a number (e.g., 9A)
+        r'Year(\d+)',  # Contains "Year" followed by number
+        r'Form(\d+)',  # Contains "Form" followed by number
+        r'Y(\d+)',  # Contains "Y" followed by number
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, class_name, re.IGNORECASE)
+        if match:
+            return match.group(1)
+    
+    return "Unknown"
+
+# =======================
 # Instructions Section
 # =======================
 with st.expander("📘 Instructions: Preparing Your Excel File", expanded=True):
@@ -225,7 +248,7 @@ with st.expander("📘 Instructions: Preparing Your Excel File", expanded=True):
 
     - **Name**: Student's full name  
     - **Gender**: e.g., M(Male) / F (Female)
-    - **Class**: Class name or code
+    - **Class**: Class name or code (optional - if not present, sheet names will be used)
     - **Assessment**: Continuous Assessment percentage (%, numeric)
     - **Examination**: Examination percentage (%, numeric)
     - **Total**: Total marks between Assessment and Examination (%, numeric)
@@ -240,6 +263,7 @@ with st.expander("📘 Instructions: Preparing Your Excel File", expanded=True):
     - The column names are **case-insensitive**, but ensure they follow the exact format.
     - Avoid extra spaces in headers or leave cells empty.
     - 'ABS' will be treated as **Absent** and excluded from numerical computations.
+    - If Class column is missing, sheet names will be used as class names.
     """)
 
 # ================================
@@ -252,6 +276,7 @@ input_method = st.radio(
 )
 
 df = None
+all_data = None  # Store the complete dataset
 
 if input_method == "Upload File":
     uploaded_file = st.file_uploader("📁 Upload the student CSV or Excel file", type=["csv", "xlsx", "xls"])
@@ -260,6 +285,7 @@ if input_method == "Upload File":
         # --- File Reading ---
         if uploaded_file.name.endswith('.csv'):
             df = pd.read_csv(uploaded_file)
+            all_data = df.copy()
         else:
             all_sheets = pd.read_excel(uploaded_file, sheet_name=None)
             dataframes = []
@@ -268,14 +294,17 @@ if input_method == "Upload File":
                 if "Class" not in sheet_df.columns:
                     sheet_df["Class"] = sheet_name
                 dataframes.append(sheet_df)
-            df = pd.concat(dataframes, ignore_index=True)
+            all_data = pd.concat(dataframes, ignore_index=True)
+            df = all_data.copy()
         
 else:  # Google Sheets URL
     sheets_url = st.text_input("🔗 Google Sheets URL", placeholder="https://docs.google.com/spreadsheets/d/...")
     
     if sheets_url:
         with st.spinner("Loading data from Google Sheets..."):
-            df = load_google_sheet(sheets_url)
+            all_data = load_google_sheet(sheets_url)
+            if all_data is not None:
+                df = all_data.copy()
 
 # Only process data if df is not None
 if df is not None and not df.empty:
@@ -367,6 +396,51 @@ if df is not None and not df.empty:
     numeric_overall = pd.to_numeric(df["Overall"], errors="coerce")
     benchmark = numeric_overall.mean()
     st.success(f"Data loaded successfully! Found {len(df)} records.")
+
+    # =========================
+    # Year Level Filtering
+    # =========================
+    st.markdown("<hr style='border:1px solid lightgrey'>", unsafe_allow_html=True)
+    st.subheader("📊 Filter by Year Level")
+
+    # Extract year levels from class names
+    df['Year_Level'] = df['Class'].apply(extract_year_level)
+
+    # Get unique year levels and sort them numerically
+    year_levels = [yl for yl in df['Year_Level'].unique() if yl != "Unknown"]
+
+    # Convert to integers for proper numerical sorting, handling any errors
+    numeric_year_levels = []
+    for yl in year_levels:
+        try:
+            numeric_year_levels.append(int(yl))
+        except ValueError:
+            # If it's not a number, keep it as string
+            numeric_year_levels.append(yl)
+
+    # Sort numerically if all are numbers, otherwise sort as strings
+    if all(isinstance(yl, int) for yl in numeric_year_levels):
+        numeric_year_levels.sort()
+        year_levels = [str(yl) for yl in numeric_year_levels]
+    else:
+        year_levels.sort()
+
+    # Add "All" option to view all data
+    year_levels.insert(0, "All")
+
+    # Create filter
+    selected_year = st.selectbox(
+        "Select Year Level to View:",
+        options=year_levels,
+        index=0
+    )
+
+    # Filter data based on selection
+    if selected_year != "All":
+        df = df[df['Year_Level'] == selected_year]
+        st.info(f"Showing data for Year {selected_year} only. {len(df)} records found.")
+    else:
+        st.info("Showing data for all year levels.")
 
     # ================================
     # Gender Distribution by Class
@@ -740,10 +814,23 @@ if df is not None and not df.empty:
         </medium>
         </div>
         """, unsafe_allow_html=True)
-    
-    st.dataframe(df.groupby("Class")[["CA_Percent", "Exam_Percent", "Overall"]].describe().round(2))
 
-    st.markdown("<hr style='border:1px solid lightgrey'>", unsafe_allow_html=True)
+    # Filter out non-numeric values before calculating statistics
+    numeric_cols = ["CA_Percent", "Exam_Percent", "Overall"]
+    performance_data = df[numeric_cols].apply(pd.to_numeric, errors='coerce')
+
+    # Check if we have any valid numeric data
+    if performance_data.isna().all().all():
+        st.warning("No valid numeric data found for performance summary.")
+    else:
+        # Combine with class information
+        performance_data['Class'] = df['Class']
+        
+        # Calculate statistics for each class
+        performance_summary = performance_data.groupby("Class")[numeric_cols].describe().round(2)
+        
+        # Display the performance summary
+        st.dataframe(performance_summary)
 
     # =======================
     # Overall Pie Chart
@@ -797,7 +884,7 @@ with st.sidebar:
                     class_pie_chart_paths=class_pie_chart_paths,
                     class_grade_bar_path=class_grade_bar_path,
                     class_grade_table_path=class_grade_table_path,
-                    gender_bar_chart_graph=gender_bar_chart_path,
+                    gender_bar_chart_path=gender_bar_chart_path,
                     gender_table_path=gender_table_path,
                     report_title=pdf_title
                 )
